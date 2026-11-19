@@ -88,6 +88,14 @@
   const owner = 'YricOTF'
   const host = owner.toLowerCase() + '.github.io'
   const cacheKey = 'yricotf-pages-v1'
+  const descriptions = {
+    'pelican-velo': '骑上复古单车，和鹈鹕一起沿海岛公路骑行，探索灯塔与海湾。',
+    'SteelFrontline': '浏览器即时战略游戏，指挥部队登陆、增援并争夺据点，支持单人和多人对战。',
+    'wdfz': '3D 校园怪谈探索游戏，在日常课表中探索校园、应对异象并寻找结局。',
+    'libraryWorld': '以 ASCII 和 CRT 视觉呈现的《world.execute(me);》互动音乐动画。',
+    'gzcl': '趁同学转头前偷偷泼湿柿子的反应小游戏，注意水量和湿度。',
+    'PONG84_Classic': '复古风格的乒乓球游戏，支持人机、本地双人和联机对战。'
+  }
   const search = document.querySelector('#search')
   const refresh = document.querySelector('#refresh')
   const status = document.querySelector('#status')
@@ -112,7 +120,7 @@
     title.textContent = repository.name
     const description = document.createElement('p')
     description.className = 'description'
-    description.textContent = repository.description || repository.language || ''
+    description.textContent = descriptions[repository.name] || repository.description || repository.language || ''
     description.hidden = !description.textContent
     const actions = document.createElement('div')
     actions.className = 'actions'
@@ -128,7 +136,7 @@
   function render() {
     const query = search.value.trim().toLowerCase()
     const matches = repositories.filter(({name, description}) =>
-      name.toLowerCase().includes(query) || (description || '').toLowerCase().includes(query)
+      name.toLowerCase().includes(query) || (descriptions[name] || description || '').toLowerCase().includes(query)
     )
     projects.replaceChildren(...matches.map(createCard))
     const count = query ? `匹配 ${matches.length} / ${repositories.length} 个站点` : `${repositories.length} 个站点`
