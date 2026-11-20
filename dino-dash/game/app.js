@@ -1,13 +1,15 @@
-import { control, loadRun, newRun, RACE_METRES, SKINS, stepRun, tune } from "./runner.js";
-import { Scene } from "./scene.js";
-import { normalizeSave, readSession, Save, writeSession } from "./storage.js";
+import { control, groupsNear, loadRun, newPractice, newRun, RACE_METRES, RACE_RULES, stepRun, tune } from "./runner.js?v=2";
+import { ACCESSORIES, CHEST_COST, fragmentBalance, openChest, owns, packLook, SKINS, unlock, unpackLook, WARDROBE } from "./catalog.js?v=2";
+import { bossAttack, BOSSES, LANE_NAMES, POWERUPS } from "./challenge.js?v=2";
+import { Scene } from "./scene.js?v=2";
+import { normalizeSave, readSession, Save, writeSession } from "./storage.js?v=2";
 import { RoomClient } from "./network.js";
 
 const RACE_SAVE = "dino-dash.race.v1";
 const CODE_FORMAT = /^[2-9A-HJ-NP-Z]{6}$/;
 const keys = {
   ArrowLeft: "left", KeyA: "left", ArrowRight: "right", KeyD: "right",
-  ArrowUp: "jump", Space: "jump", KeyW: "jump", ArrowDown: "slide", KeyS: "slide",
+  ArrowUp: "jump", Space: "jump", KeyW: "jump", ArrowDown: "slide", KeyS: "slide", KeyX: "strike",
 };
 const digits = (n, width = 2) => String(Math.floor(n)).padStart(width, "0");
 
@@ -42,6 +44,8 @@ class Sound {
     const tones = {
       jump: [330, 590, 0.12], fossil: [720, 1130, 0.103], hit: [145, 57, 0.21],
       tick: [440, 440, 0.081], go: [600, 900, 0.148], unlock: [470, 920, 0.21],
+      power: [325, 960, 0.18], shield: [450, 185, 0.15], "boss-strike": [180, 710, 0.18],
+      "boss-clear": [490, 1170, 0.27], "boss-enter": [125, 340, 0.24],
     };
     const [start, end, time] = tones[which] || tones.tick;
     const ctx = this.context;
@@ -65,12 +69,12 @@ class Sound {
 
 export function mount(root, { roomTransport = null } = {}) {
   const motionPreference = window.matchMedia("(prefers-reduced-motion: reduce)");
-  const touchPointer = window.matchMedia("(pointer: coarse)");
   const nodes = Object.fromEntries([...root.querySelectorAll("[id]")].map(el => [el.id, el]));
   const buttons = name => [...root.querySelectorAll(`[data-action="${name}"]`)];
   const panels = [...root.querySelectorAll("[data-panel]")];
   const views = [...root.querySelectorAll("[data-view]")];
-  const skins = [...root.querySelectorAll("[data-skin]")];
+  const wardrobeTiles = new Map();
+  const powerChips = new Map();
   const dialog = nodes.panel;
   const save = new Save();
   const sound = new Sound();
@@ -85,6 +89,9 @@ export function mount(root, { roomTransport = null } = {}) {
   let run = null;
   let race = null;
   let selected = save.current.skin;
+  let wardrobeSlot = "skin";
+  let bossHudKey = "";
+  let practiceIndex = 0;
   let imported = null;
   let startAt = 0;
   let goAt = 0;
@@ -100,7 +107,7 @@ export function mount(root, { roomTransport = null } = {}) {
   let lobbyBusy = false;
   let entering = false;
   let leaving = false;
-  let jumpingFrom;
+  let swipe;
   let feedbackUntil = 0;
   let rosterSignature = "";
   let resultSignature = "";
@@ -135,7 +142,7 @@ export function mount(root, { roomTransport = null } = {}) {
     const profile = save.current;
     text("best-distance", digits(profile.best, 4));
     text("fossil-total", digits(profile.fossils));
-    text("skin-total", `${profile.unlocked.length} / ${SKINS.length}`);
+    text("skin-total", `${profile.unlocked.length + profile.accessories.length} / ${WARDROBE.length}`);
     for (const btn of buttons("continue")) if (btn.classList.contains("continue")) setHidden(btn, !profile.checkpoint);
     if (profile.checkpoint) text("continue-distance", `· ${Math.floor(profile.checkpoint.distance)} m`);
     sound.active = profile.sound;
@@ -161,6 +168,7 @@ export function mount(root, { roomTransport = null } = {}) {
       renderCloset();
     }
     if (name === "save") renderSave();
+    if (name === "chest") renderChest();
   }
 
   function hidePanel() {
@@ -183,6 +191,7 @@ export function mount(root, { roomTransport = null } = {}) {
     mode = next;
     for (const el of views) setHidden(el, next === "menu" ? el.dataset.view !== "menu" : el.dataset.view !== "play");
     const canPlay = next !== "menu";
+    root.classList.toggle("is-playing", canPlay);
     show("race-status", next === "race");
     if (canPlay) scene ||= new Scene(gameCanvas);
     for (const btn of buttons("pause")) {
@@ -194,7 +203,7 @@ export function mount(root, { roomTransport = null } = {}) {
   }
 
   function snapshotSolo() {
-    if (mode !== "solo" || !run || run.done) return;
+    if (mode !== "solo" || !run || run.done || run.practice) return;
     save.change(profile => { profile.checkpoint = loadRun(run); });
     updateMenu();
     lastSaved = performance.now();
@@ -210,6 +219,12 @@ export function mount(root, { roomTransport = null } = {}) {
     paused = false;
     show("run-feedback", false);
     show("countdown", false);
+    show("boss-hud", false);
+    show("strike-controls", false);
+    show("strike-key", false);
+    show("meteor-warning", false);
+    show("active-powers", false);
+    bossHudKey = "";
   }
 
   function haltToMenu() {
@@ -236,14 +251,27 @@ export function mount(root, { roomTransport = null } = {}) {
       displayToast("没有可继续的单人存档。");
       return;
     }
+    beginSolo(checkpoint || newRun(), 2450);
+    snapshotSolo();
+  }
+
+  function beginSolo(next, countdown) {
     sound.unlock();
-    run = checkpoint || newRun();
+    run = next;
     resetHud();
     hidePanel();
     view("solo");
-    startAt = performance.now() + 2450;
-    snapshotSolo();
+    startAt = performance.now() + countdown;
     updateHud();
+  }
+
+  function launchPractice(index) {
+    if (mode === "race" || client.session) return;
+    const encounter = newPractice(index);
+    if (!encounter) return;
+    if (mode === "solo") snapshotSolo();
+    practiceIndex = index;
+    beginSolo(encounter, 1620);
   }
 
   function pauseSolo() {
@@ -253,7 +281,7 @@ export function mount(root, { roomTransport = null } = {}) {
       pausedAt = performance.now();
       snapshotSolo();
     }
-    text("pause-text", save.available ? "单人进度已保存。" : "本轮进度已暂停。浏览器存储暂不可用。");
+    text("pause-text", run.practice ? "首领练习已暂停。" : save.available ? "单人进度已保存。" : "本轮进度已暂停。浏览器存储暂不可用。");
     openPanel("pause");
   }
 
@@ -268,58 +296,163 @@ export function mount(root, { roomTransport = null } = {}) {
   function endSolo() {
     const distance = Math.floor(run.distance);
     const gain = run.fossils;
-    let record = false;
-    save.change(profile => {
-      record = distance > profile.best;
-      profile.best = Math.max(distance, profile.best);
-      profile.total += distance;
-      profile.fossils += gain;
-      profile.checkpoint = null;
-    });
     paused = true;
     pausedAt = performance.now();
+    show("practice-retry", run.practice);
+    show("end-retry", !run.practice);
+    if (run.practice) {
+      text("end-title", run.won ? "挑战成功" : "挑战结束");
+      text("end-distance", run.boss.hp);
+      nodes["end-distance"].parentElement.hidden = true;
+      text("end-summary", run.won ? `已击败${BOSSES[practiceIndex].name}。` : `首领还剩 ${run.boss.hp} 格生命。先避开攻击，再到亮色车道反击。`);
+    } else {
+      let record = false;
+      save.change(profile => {
+        record = distance > profile.best;
+        profile.best = Math.max(distance, profile.best);
+        profile.total += distance;
+        profile.fossils += gain;
+        profile.checkpoint = null;
+      });
+      text("end-title", run.lastHit === "meteor" ? "被陨石击中" : "跑酷结束");
+      nodes["end-distance"].parentElement.hidden = false;
+      text("end-distance", distance);
+      const wins = run.bossWins ? ` · 击败 ${run.bossWins} 位首领` : "";
+      text("end-summary", `收集 ${gain} 枚化石${wins}${record ? " · 刷新了单人纪录！" : ""}`);
+    }
     updateMenu();
-    text("end-distance", distance);
-    text("end-summary", `收集 ${gain} 枚化石${record ? " · 刷新了单人纪录！" : ""}`);
     openPanel("end");
   }
 
-  function renderCloset() {
-    const chosen = SKINS.find(skin => skin.id === selected) || SKINS[0];
+  function selectedOutfit() {
+    return WARDROBE.find(item => item.id === selected);
+  }
+
+  function currentLook(profile = save.current) {
+    return packLook(profile.skin, profile.head, profile.neck);
+  }
+
+  function previewLook() {
     const profile = save.current;
-    text("closet-balance", profile.fossils);
-    text("skin-name", chosen.name);
-    text("skin-description", chosen.item);
+    if (wardrobeSlot === "head") return packLook(profile.skin, selected, profile.neck);
+    if (wardrobeSlot === "neck") return packLook(profile.skin, profile.head, selected);
+    return packLook(selected, profile.head, profile.neck);
+  }
+
+  function stamp(id) {
+    const span = document.createElement("span");
+    span.className = "wardrobe-stamp";
+    span.setAttribute("aria-hidden", "true");
+    const n = WARDROBE.findIndex(item => item.id === id);
+    if (n < 0) span.classList.add("empty");
+    else {
+      span.style.setProperty("--sheet-x", `${100 * n / (WARDROBE.length - 1)}%`);
+      span.style.setProperty("--sheet-size", `${100 * WARDROBE.length}%`);
+    }
+    return span;
+  }
+
+  function wardrobeSlotIsEquipped(profile, id) {
+    return profile[wardrobeSlot] === id;
+  }
+
+  function fillCloset() {
+    const category = wardrobeSlot === "skin" ? SKINS : ACCESSORIES.filter(item => item.slot === wardrobeSlot);
+    const choices = wardrobeSlot === "skin" ? category : [{ id: "", name: "无装饰" }, ...category];
+    wardrobeTiles.clear();
+    for (const item of choices) {
+      const button = document.createElement("button");
+      const name = document.createElement("span");
+      const status = document.createElement("span");
+      button.type = "button";
+      button.className = "skin-tile";
+      button.dataset.outfit = item.id;
+      name.className = "skin-label";
+      name.textContent = item.name;
+      status.className = "skin-cost";
+      button.append(stamp(item.id), name, status);
+      wardrobeTiles.set(item.id, { button, status });
+    }
+    nodes["wardrobe-grid"].replaceChildren(...Array.from(wardrobeTiles.values(), item => item.button));
+    for (const tab of root.querySelectorAll("[data-wardrobe-slot]")) {
+      tab.setAttribute("aria-pressed", String(tab.dataset.wardrobeSlot === wardrobeSlot));
+    }
+  }
+
+  function setWardrobeSlot(slot) {
+    wardrobeSlot = slot;
+    selected = save.current[slot];
+    fillCloset();
+    text("closet-hint", "");
+    renderCloset();
+  }
+
+  function renderCloset() {
+    const profile = save.current;
+    const item = selectedOutfit();
+    const selectedEquipped = wardrobeSlotIsEquipped(profile, selected);
     const equip = nodes["equip-button"];
-    const unlocked = profile.unlocked.includes(chosen.id);
-    equip.disabled = chosen.id === profile.skin || (!unlocked && profile.fossils < chosen.cost);
-    equip.textContent = chosen.id === profile.skin ? "已装备"
-      : unlocked ? "装备" : profile.fossils >= chosen.cost ? `解锁并装备 · ${chosen.cost} 枚` : `还差 ${chosen.cost - profile.fossils} 枚化石`;
-    for (const button of skins) {
-      const skin = SKINS.find(item => item.id === button.dataset.skin);
-      button.setAttribute("aria-pressed", String(skin.id === selected));
-      const label = button.querySelector("[data-skin-status]");
-      label.textContent = skin.id === profile.skin ? "已装备" : profile.unlocked.includes(skin.id) ? "已解锁" : `${skin.cost} 枚`;
+    const hasItem = !item || owns(profile, item);
+    const fragments = item ? fragmentBalance(profile, item) : 0;
+    const required = item ? Math.max(0, item.cost - fragments) : 0;
+    text("closet-universal", profile.universal);
+    text("skin-name", item?.name ?? "无装饰");
+    text("skin-description", item?.item ?? "保留当前皮肤的外观");
+    text("wardrobe-progress", item && !hasItem ? `专属碎片 ${Math.min(fragments, item.cost)} / ${item.cost}` : "");
+
+    equip.disabled = selectedEquipped || (!hasItem && profile.universal < required);
+    equip.textContent = selectedEquipped ? "已装备" : !item ? "卸下装饰"
+      : hasItem ? "装备" : required > profile.universal ? `还差 ${required - profile.universal} 片`
+      : required ? `合成并装备 · 用 ${required} 片万能` : "合成并装备";
+
+    for (const [id, tile] of wardrobeTiles) {
+      const choice = WARDROBE.find(entry => entry.id === id);
+      tile.button.setAttribute("aria-pressed", String(id === selected));
+      tile.status.textContent = wardrobeSlotIsEquipped(profile, id) ? "已装备"
+        : !choice || owns(profile, choice) ? "可装备" : `${Math.min(choice.cost, fragmentBalance(profile, choice))} / ${choice.cost} 片`;
     }
   }
 
   function equip() {
-    const chosen = SKINS.find(skin => skin.id === selected);
-    if (!chosen) return;
-    let changed = false;
+    const item = selectedOutfit();
+    let equipped = false;
     save.change(profile => {
-      if (!profile.unlocked.includes(chosen.id)) {
-        if (profile.fossils < chosen.cost) return;
-        profile.fossils -= chosen.cost;
-        profile.unlocked.push(chosen.id);
-      }
-      changed = profile.skin !== chosen.id;
-      profile.skin = chosen.id;
+      if (item && !unlock(profile, item)) return;
+      if (profile[wardrobeSlot] === selected) return;
+      profile[wardrobeSlot] = selected;
+      equipped = true;
     });
-    text("closet-hint", changed ? `已装备「${chosen.name}」。` : "");
-    if (changed) sound.play("unlock");
+    if (equipped) {
+      text("closet-hint", item ? `已装备「${item.name}」。` : "已卸下装饰。");
+      sound.play("unlock");
+    }
     updateMenu();
     renderCloset();
+  }
+
+  function renderChest() {
+    const profile = save.current;
+    text("chest-fossils", profile.fossils);
+    text("chest-universal", profile.universal);
+    nodes["chest-open"].disabled = profile.chestOpened && profile.fossils < CHEST_COST;
+    text("chest-open", !profile.chestOpened ? "免费开启" : profile.fossils >= CHEST_COST
+      ? `开启 · ${CHEST_COST} 枚化石` : `还差 ${CHEST_COST - profile.fossils} 枚化石`);
+  }
+
+  function openFossilChest() {
+    let reward;
+    save.change(profile => { reward = openChest(profile); });
+    if (!reward) return;
+    const label = reward.item ? `${reward.item.name}碎片` : "万能碎片";
+    const preview = nodes["chest-preview"];
+    preview.classList.remove("opened");
+    void preview.offsetWidth;
+    preview.classList.add("opened");
+    text("chest-reward", `获得 ${reward.count} 片${label}`);
+    text("chest-hint", save.available ? "" : "浏览器存储不可用，当前奖励可从存档导出。");
+    sound.play("power");
+    updateMenu();
+    renderChest();
   }
 
   function renderSave() {
@@ -347,7 +480,7 @@ export function mount(root, { roomTransport = null } = {}) {
     try {
       if (file.size > 750_000) throw new Error();
       const raw = JSON.parse(await file.text());
-      if (raw?.version !== 1 || !Array.isArray(raw.unlocked) || !Number.isFinite(raw.fossils)) throw new Error();
+      if (![1, 2].includes(raw?.version) || !Array.isArray(raw.unlocked) || !Number.isFinite(raw.fossils)) throw new Error();
       imported = normalizeSave(raw);
       openPanel("replace");
     } catch {
@@ -396,7 +529,7 @@ export function mount(root, { roomTransport = null } = {}) {
     save.change(profile => { profile.nick = name; });
     text("online-hint", which === "create" ? "正在创建房间…" : "正在加入房间…");
     try {
-      await client.enter(which, { code: which === "join" ? code : undefined, name, skin: save.current.skin });
+      await client.enter(which, { code: which === "join" ? code : undefined, name, skin: currentLook(), rules: RACE_RULES });
       text("online-hint", "");
     } catch (error) {
       text("online-hint", error.status ? error.message : "连接超时。可以再试一次。");
@@ -437,9 +570,7 @@ export function mount(root, { roomTransport = null } = {}) {
       order.textContent = digits(index + 1);
       li.append(order);
     }
-    const icon = document.createElement("span");
-    icon.className = `skin-sprite skin-${player.skin}`;
-    icon.setAttribute("aria-hidden", "true");
+    const icon = stamp(unpackLook(player.skin).skin);
     const name = document.createElement("span");
     name.className = "player-name";
     name.textContent = player.name;
@@ -525,7 +656,8 @@ export function mount(root, { roomTransport = null } = {}) {
     const state = readSession(RACE_SAVE);
     const cached = state?.key === key ? loadRun({ ...state.run, done: false }, "race") : null;
     const me = room.players.find(player => player.id === room.self);
-    run = cached || newRun(room.seed, "race");
+    const rules = room.rules === RACE_RULES ? RACE_RULES : 1;
+    run = cached?.rules === rules ? cached : newRun(room.seed, "race", rules);
     if (me && me.distance > run.distance) {
       run.distance = me.distance;
       run.lane = Math.max(0, Math.min(2, Math.round(me.x / 3) + 1));
@@ -655,6 +787,7 @@ export function mount(root, { roomTransport = null } = {}) {
         break;
       case "solo": launchSolo(); break;
       case "new-solo": launchSolo(false, true); break;
+      case "practice-retry": launchPractice(practiceIndex); break;
       case "continue": launchSolo(true); break;
       case "pause": if (mode === "race") openPanel("leave"); else pauseSolo(); break;
       case "resume": resumeSolo(); break;
@@ -677,23 +810,26 @@ export function mount(root, { roomTransport = null } = {}) {
         sound.unlock();
         break;
       case "save":
+      case "guide":
+      case "chest":
       case "closet":
         if (mode === "race" || client.session) {
           displayToast("退出当前房间后即可打开。");
           break;
         }
-        if (mode === "solo" && !run?.done) {
+        if (mode === "solo" && !run?.done && !paused) {
           pausedAt = performance.now();
           paused = true;
           snapshotSolo();
         }
         if (which === "closet") {
-          selected = save.current.skin;
-          text("closet-hint", "");
-        } else text("save-hint", "");
+          setWardrobeSlot("skin");
+        } else if (which === "save") text("save-hint", "");
+        else if (which === "chest") text("chest-hint", "");
         openPanel(which);
         break;
       case "equip": equip(); break;
+      case "open-chest": openFossilChest(); break;
       case "export-save": exportSave(); break;
       case "import-save": nodes["import-file"].click(); break;
       case "replace-save":
@@ -717,7 +853,7 @@ export function mount(root, { roomTransport = null } = {}) {
     }
   }
 
-  function runEvent(event) {
+  function runEvent(event, detail) {
     sound.play(event);
     if (event === "fossil") {
       for (let i = 0; i < 7; i++) {
@@ -728,30 +864,138 @@ export function mount(root, { roomTransport = null } = {}) {
         });
       }
     }
-    if (event === "hit" && mode === "race") feedback("撞到障碍 · 减速");
+    if (event === "power") feedback(`${POWERUPS[detail].name} · ${POWERUPS[detail].effect}`, 1400);
+    if (event === "shield") feedback("甲壳盾抵挡了一次撞击");
+    if (event === "boss-clear") feedback(`击败${detail.name} · 获得 ${detail.prize} 枚化石`, 1800);
+    if (event === "hit" && mode === "race") feedback(detail === "meteor" ? "被陨石击中 · 减速" : "撞到障碍 · 减速");
   }
 
   function applyInput(move) {
     if (mode === "menu" || paused || !run || run.done || dialog.open && panel !== "leave") return;
     if (startAt && (mode === "race" ? client.time() : performance.now()) < startAt) return;
     sound.unlock();
-    if (control(run, move) && move === "jump") sound.play("jump");
+    const moved = control(run, move, runEvent);
+    if (moved && move === "jump") sound.play("jump");
+    if (!moved && move === "strike" && run.boss?.phase === "exposed") feedback(`到${LANE_NAMES[run.boss.weakLane]}后反击`);
+  }
+
+  function buildGuide() {
+    for (const power of Object.values(POWERUPS)) {
+      const li = document.createElement("li");
+      const icon = document.createElement("span");
+      const copy = document.createElement("div");
+      const name = document.createElement("strong");
+      const effect = document.createElement("small");
+      icon.className = "power-symbol";
+      icon.textContent = power.symbol;
+      icon.setAttribute("aria-hidden", "true");
+      name.textContent = power.name;
+      effect.textContent = `${power.effect} · ${power.duration} 秒`;
+      copy.append(name, effect);
+      li.append(icon, copy);
+      nodes["guide-powers"].append(li);
+    }
+    for (const [index, boss] of BOSSES.entries()) {
+      const li = document.createElement("li");
+      const copy = document.createElement("div");
+      const title = document.createElement("strong");
+      const details = document.createElement("small");
+      const button = document.createElement("button");
+      title.textContent = boss.name;
+      details.textContent = `${boss.distance} m · ${boss.hint}`;
+      button.type = "button";
+      button.className = "button compact";
+      button.dataset.practice = String(index);
+      button.textContent = "练习";
+      button.setAttribute("aria-label", `练习挑战${boss.name}`);
+      copy.append(title, details);
+      li.append(stamp(boss.skin), copy, button);
+      nodes["guide-bosses"].append(li);
+    }
+  }
+
+  function buildPowerHud() {
+    for (const [id, power] of Object.entries(POWERUPS)) {
+      const chip = document.createElement("div");
+      const legend = document.createElement("b");
+      const timer = document.createElement("span");
+      chip.className = "power-chip";
+      chip.title = power.name;
+      chip.hidden = true;
+      legend.textContent = power.symbol;
+      chip.append(legend, timer);
+      powerChips.set(id, { chip, timer });
+      nodes["active-powers"].append(chip);
+    }
+  }
+
+  function updateChallengeHud(distance) {
+    const hasPower = Object.keys(run.powers).length > 0;
+    if (hasPower || !nodes["active-powers"].hidden) {
+      for (const [id, { chip, timer }] of powerChips) {
+        const seconds = Math.ceil(run.powers[id] || 0);
+        setHidden(chip, !seconds);
+        if (seconds && timer.textContent !== `${seconds}s`) timer.textContent = `${seconds}s`;
+      }
+    }
+    show("active-powers", hasPower);
+
+    const state = run.boss;
+    const active = !!state;
+    show("boss-hud", active);
+    show("strike-controls", active);
+    show("strike-key", active);
+    if (active) {
+      const label = `${state.index}:${state.phase}:${state.hp}:${state.lanes.join(",")}:${state.weakLane}`;
+      if (label === bossHudKey) return;
+      bossHudKey = label;
+      const boss = BOSSES[state.index];
+      const incident = bossAttack(state);
+      const instructions = {
+        intro: "先看首领的攻击车道",
+        warning: `${incident.name} · 避开${state.lanes.map(lane => LANE_NAMES[lane]).join("、")}`,
+        impact: `${incident.name}！`,
+        exposed: `破绽 · 到${LANE_NAMES[state.weakLane]}反击`,
+        stagger: "反击命中",
+        victory: "首领已击败",
+      };
+      text("boss-name", boss.name);
+      text("boss-count", `${state.hp} / ${boss.hp}`);
+      text("boss-prompt", instructions[state.phase]);
+      nodes["boss-hud"].dataset.phase = state.phase;
+      nodes["strike-button"].disabled = state.phase !== "exposed";
+      nodes["boss-health"].replaceChildren(...Array.from({ length: boss.hp }, (_, i) => {
+        const segment = document.createElement("i");
+        if (i < state.hp) segment.className = "active";
+        return segment;
+      }));
+      show("meteor-warning", false);
+      return;
+    }
+    if (distance === score.distance && !bossHudKey) return;
+    bossHudKey = "";
+    const meteor = groupsNear(run.seed, run.distance, 33, 0, run.mode, run.rules).flatMap(group => group.obstacles)
+      .filter(mark => mark.kind === "meteor" && mark.d > run.distance && mark.d - run.distance <= 30)
+      .sort((a, b) => a.d - b.d)[0];
+    if (meteor) text("meteor-warning", `陨石落点 · ${LANE_NAMES[meteor.lane]}`);
+    show("meteor-warning", !!meteor);
   }
 
   function updateHud() {
     const distance = Math.floor(run.distance);
     if (distance !== score.distance) text("run-distance", digits(distance, 4));
     if (run.fossils !== score.fossils) text("run-fossils", digits(run.fossils));
+    updateChallengeHud(distance);
     score = { distance, fossils: run.fossils };
   }
 
   function animate(now) {
     const dt = Math.min(0.072, (now - (lastFrame || now)) / 1000);
     lastFrame = now;
-    const canDraw = now - lastDraw >= (mode === "menu" || touchPointer.matches ? 30 : 13);
+    const canDraw = now - lastDraw >= (mode === "menu" ? 30 : 11);
     if (canDraw) lastDraw = now;
     if (mode === "menu") {
-      if (canDraw) hero.menu(motionPreference.matches ? 0 : now / 1000, save.current.skin);
+      if (canDraw && !dialog.open) hero.menu(motionPreference.matches ? 0 : now / 1000, currentLook());
     } else if (run) {
       const clock = mode === "race" ? client.time() : now;
       const timerClock = mode === "solo" && paused ? pausedAt : clock;
@@ -759,7 +1003,7 @@ export function mount(root, { roomTransport = null } = {}) {
         const n = Math.ceil((startAt - timerClock) / 1000);
         if (n !== countdownNumber) {
           countdownNumber = n;
-          text("count-message", mode === "race" ? "竞速即将开始" : "准备开跑");
+          text("count-message", mode === "race" ? "竞速即将开始" : run.practice ? "准备挑战" : "准备开跑");
           text("count-number", n);
           show("countdown", true);
           if (!paused) sound.play("tick");
@@ -803,7 +1047,7 @@ export function mount(root, { roomTransport = null } = {}) {
           feedback("冲线！等待其他玩家", 5000);
         }
       }
-      if (!paused && mode === "solo" && !run.done && now - lastSaved > 1050) snapshotSolo();
+      if (!paused && mode === "solo" && !run.done && !run.practice && now - lastSaved > 1050) snapshotSolo();
       if (!paused) {
         for (const particle of particles) {
           particle.x += particle.vx * dt;
@@ -818,24 +1062,32 @@ export function mount(root, { roomTransport = null } = {}) {
         show("run-feedback", false);
         feedbackUntil = 0;
       }
-      if (canDraw) scene.race(run, paused ? pausedAt / 1000 : now / 1000, save.current.skin, [...rivalModels.values()], particles);
+      if (canDraw) scene.race(run, paused ? pausedAt / 1000 : now / 1000, currentLook(), [...rivalModels.values()], particles);
     }
-    if (canDraw && panel === "closet") closet.menu(motionPreference.matches ? 0 : now / 1000, selected, true);
+    if (canDraw && panel === "closet") closet.menu(motionPreference.matches ? 0 : now / 1000, previewLook(), true);
     raf = requestAnimationFrame(animate);
   }
 
   on(root, "click", event => {
-    const outfit = event.target.closest("[data-skin]");
+    const slot = event.target.closest("[data-wardrobe-slot]");
+    if (slot) { setWardrobeSlot(slot.dataset.wardrobeSlot); return; }
+    const outfit = event.target.closest("[data-outfit]");
     if (outfit) {
-      selected = outfit.dataset.skin;
+      selected = outfit.dataset.outfit;
       text("closet-hint", "");
       renderCloset();
       return;
     }
+    const practice = event.target.closest("[data-practice]");
+    if (practice) { launchPractice(Number(practice.dataset.practice)); return; }
     const move = event.target.closest("[data-move]");
-    if (move) applyInput(move.dataset.move);
+    if (move && event.detail === 0) applyInput(move.dataset.move);
     const button = event.target.closest("[data-action]");
     if (button) action(button.dataset.action);
+  });
+  on(root, "pointerdown", event => {
+    const button = event.target.closest("[data-move]");
+    if (button && !button.disabled && event.isPrimary && event.button === 0) applyInput(button.dataset.move);
   });
   on(nodes["join-form"], "submit", event => {
     event.preventDefault();
@@ -865,22 +1117,31 @@ export function mount(root, { roomTransport = null } = {}) {
       applyInput(move);
     }
   });
+  function swipeInput(event) {
+    if (swipe?.id !== event.pointerId || swipe.fired) return;
+    const dx = event.clientX - swipe.x;
+    const dy = event.clientY - swipe.y;
+    const horizontal = Math.abs(dx) > Math.abs(dy);
+    const distance = Math.max(Math.abs(dx), Math.abs(dy));
+    if (distance < 10 || (distance < 16 && distance < 1.22 * Math.min(Math.abs(dx), Math.abs(dy)))) return;
+    swipe.fired = true;
+    applyInput(horizontal ? (dx < 0 ? "left" : "right") : (dy < 0 ? "jump" : "slide"));
+  }
   on(gameCanvas, "pointerdown", event => {
-    jumpingFrom = { x: event.clientX, y: event.clientY, id: event.pointerId };
+    if (!event.isPrimary || event.button !== 0) return;
+    swipe = { x: event.clientX, y: event.clientY, id: event.pointerId, fired: false };
     try { gameCanvas.setPointerCapture(event.pointerId); } catch {}
   });
+  on(gameCanvas, "pointermove", swipeInput);
   on(gameCanvas, "pointerup", event => {
-    if (jumpingFrom?.id !== event.pointerId) return;
-    const x = event.clientX - jumpingFrom.x, y = event.clientY - jumpingFrom.y;
-    jumpingFrom = null;
-    if (Math.max(Math.abs(x), Math.abs(y)) < 17) return;
-    applyInput(Math.abs(x) > Math.abs(y) ? (x < 0 ? "left" : "right") : (y < 0 ? "jump" : "slide"));
+    swipeInput(event);
+    if (swipe?.id === event.pointerId) swipe = null;
   });
-  on(gameCanvas, "pointercancel", () => { jumpingFrom = null; });
+  on(gameCanvas, "pointercancel", event => { if (swipe?.id === event.pointerId) swipe = null; });
   for (const [canvas, replace] of [
-    [heroCanvas, () => { hero = new Scene(heroCanvas); }],
-    [gameCanvas, () => { scene = new Scene(gameCanvas); }],
-    [closetCanvas, () => { closet = new Scene(closetCanvas); }],
+    [heroCanvas, () => { hero.dispose(); hero = new Scene(heroCanvas); }],
+    [gameCanvas, () => { scene?.dispose(); scene = new Scene(gameCanvas); }],
+    [closetCanvas, () => { closet?.dispose(); closet = new Scene(closetCanvas); }],
   ]) {
     on(canvas, "webglcontextlost", event => event.preventDefault());
     on(canvas, "webglcontextrestored", replace);
@@ -903,8 +1164,11 @@ export function mount(root, { roomTransport = null } = {}) {
     updateMenu();
     if (panel === "save") renderSave();
     if (panel === "closet") renderCloset();
+    if (panel === "chest") renderChest();
   });
 
+  buildGuide();
+  buildPowerHud();
   updateMenu();
   const incoming = new URL(location.href).searchParams.get("room")?.toUpperCase() || "";
   const remembered = client.pending();
@@ -921,6 +1185,9 @@ export function mount(root, { roomTransport = null } = {}) {
     client.dispose();
     roomTransport?.close();
     sound.dispose();
+    hero.dispose();
+    scene?.dispose();
+    closet?.dispose();
     clearTimeout(toastTimer);
     clearTimeout(feedbackTimer);
     cancelAnimationFrame(raf);

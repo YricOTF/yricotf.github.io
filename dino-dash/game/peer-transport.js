@@ -1,6 +1,6 @@
-import { PeerRoom, PeerRoomError } from "./peer-model.js";
-import { readSession, writeSession } from "./storage.js";
-import { connectRelay, RelayHost } from "./relay.js";
+import { PeerRoom, PeerRoomError } from "./peer-model.js?v=2";
+import { readSession, writeSession } from "./storage.js?v=2";
+import { connectRelay, RelayHost } from "./relay.js?v=2";
 
 const ROOM_KEY = "dino-dash.peer-host.v1";
 const ID_PREFIX = "yricotf-dino-dash-v1-";
@@ -243,7 +243,7 @@ export class PeerTransport {
       this.hostClosed = false;
       if (this.room?.ownerToken !== payload.token) {
         this.close();
-        this.room = PeerRoom.create(payload.token, payload.name, payload.skin);
+        this.room = PeerRoom.create(payload.token, payload.name, payload.skin, Date.now(), payload.rules);
       }
       await this.host();
       this.save();

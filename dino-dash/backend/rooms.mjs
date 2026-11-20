@@ -1,4 +1,5 @@
-import { RACE_LIMIT_MS, RACE_METRES, SKINS, clamp, randomSeed } from "../game/runner.js";
+import { RACE_LIMIT_MS, RACE_METRES, RACE_RULES, clamp, randomSeed } from "../game/runner.js";
+import { normalizeLook } from "../game/catalog.js";
 
 const CODE_CHARS = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 const CODE_FORMAT = /^[2-9A-HJ-NP-Z]{6}$/;
@@ -27,7 +28,7 @@ async function secretOf(token) {
 
 function playerInfo(data) {
   const name = typeof data.name === "string" ? Array.from(data.name.replace(/[\p{Cc}\p{Cf}]/gu, "").trim()).slice(0, 16).join("") : "";
-  return [name || "小恐龙", SKINS.some(skin => skin.id === data.skin) ? data.skin : "classic"];
+  return [name || "小恐龙", normalizeLook(data.skin)];
 }
 
 function hasFinished(room, players, now) {
@@ -37,7 +38,7 @@ function hasFinished(room, players, now) {
 async function snapshot(db, code, secret, now, writes = []) {
   const out = await db.batch([
     ...writes,
-    query(db, `SELECT r.code, r.seed, r.host, r.start, r.round, me.id AS self
+    query(db, `SELECT r.code, r.seed, r.host, r.start, r.round, r.rules, me.id AS self
       FROM race_rooms r JOIN race_players me ON me.code = r.code
       WHERE r.code = ? AND me.secret = ?`, code, secret),
     query(db, `SELECT p.id, p.name, p.skin, p.joined, p.seen, p.ready, p.seq, p.distance, p.x, p.y, p.slide, p.done, p.finish
@@ -88,7 +89,7 @@ function election(db, code, now) {
       )`, code, now - LIVE_MS, code, RACE_LIMIT_MS, now, code, code, now - LIVE_MS, code, now - LIVE_MS);
 }
 
-async function create(db, secret, info, now) {
+async function create(db, secret, info, now, rules) {
   const existing = await query(db, "SELECT code FROM race_players WHERE secret = ?", secret).first();
   if (existing) return snapshot(db, existing.code, secret, now, [
     query(db, "UPDATE race_players SET seen = ? WHERE secret = ?", now, secret),
@@ -98,8 +99,8 @@ async function create(db, secret, info, now) {
     const id = crypto.randomUUID();
     const result = await snapshot(db, code, secret, now, [
       query(db, "DELETE FROM race_rooms WHERE created < ?", now - ROOM_TTL_MS),
-      query(db, `INSERT OR IGNORE INTO race_rooms (code, seed, host, created)
-        SELECT ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM race_players WHERE secret = ?)`, code, randomSeed(), id, now, secret),
+      query(db, `INSERT OR IGNORE INTO race_rooms (code, seed, host, created, rules)
+        SELECT ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM race_players WHERE secret = ?)`, code, randomSeed(), id, now, rules, secret),
       query(db, `INSERT OR IGNORE INTO race_players (code, id, secret, name, skin, joined, seen)
         SELECT ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM race_rooms WHERE code = ? AND host = ?)`,
       code, id, secret, ...info, now, now, code, id),
@@ -111,7 +112,7 @@ async function create(db, secret, info, now) {
   return fail(503, "暂时无法创建房间，请再试一次。");
 }
 
-async function join(db, code, secret, info, now) {
+async function join(db, code, secret, info, now, rules) {
   const [name, skin] = info;
   const result = await snapshot(db, code, secret, now, [
     query(db, `DELETE FROM race_players WHERE code = ? AND seen < ? AND secret <> ?
@@ -121,14 +122,15 @@ async function join(db, code, secret, info, now) {
     now, name, skin, code, secret, code),
     query(db, `INSERT OR IGNORE INTO race_players (code, id, secret, name, skin, joined, seen)
       SELECT ?, ?, ?, ?, ?, ?, ?
-      WHERE EXISTS (SELECT 1 FROM race_rooms WHERE code = ? AND start = 0 AND created >= ?)
+      WHERE EXISTS (SELECT 1 FROM race_rooms WHERE code = ? AND start = 0 AND created >= ? AND rules <= ?)
         AND (SELECT count(*) FROM race_players WHERE code = ?) < 4`,
-    code, crypto.randomUUID(), secret, name, skin, now, now, code, now - ROOM_TTL_MS, code),
+    code, crypto.randomUUID(), secret, name, skin, now, now, code, now - ROOM_TTL_MS, rules, code),
     election(db, code, now),
   ]);
   if (result.status !== 404) return result;
-  const room = await query(db, "SELECT start, created FROM race_rooms WHERE code = ?", code).first();
+  const room = await query(db, "SELECT start, created, rules FROM race_rooms WHERE code = ?", code).first();
   if (!room || room.created < now - ROOM_TTL_MS) return fail(404, "找不到这个房间，请核对房间码。");
+  if (room.rules > rules) return fail(409, "房间已启用新版赛道，请刷新游戏后加入。");
   if (room.start) return fail(409, "这一轮已经开始。房主回到大厅后即可加入。");
   return fail(409, "房间已满，最多 4 人。");
 }
@@ -140,7 +142,7 @@ async function sync(db, code, secret, sample, now) {
     const round = integer(sample.round, 0, 100_000);
     const distance = number(sample.distance, 0, RACE_METRES);
     const x = number(sample.x, -3, 3);
-    const y = number(sample.y, 0, 2.6);
+    const y = number(sample.y, 0, 3.5);
     const slide = sample.slide === true ? 1 : 0;
     const finishAt = integer(sample.finishAt, 0, now) || now;
     if (seq && round) {
@@ -168,13 +170,14 @@ export async function roomAction(db, body, now = Date.now()) {
     return fail(400, "无效的玩家会话。");
   }
   const secret = await secretOf(body.token);
-  if (body.action === "create") return create(db, secret, playerInfo(body), now);
+  const rules = body.rules === RACE_RULES ? RACE_RULES : 1;
+  if (body.action === "create") return create(db, secret, playerInfo(body), now, rules);
   const code = typeof body.code === "string" ? body.code.trim().toUpperCase() : "";
   if (!CODE_FORMAT.test(code)) return fail(400, "请输入 6 位有效房间码。");
 
   switch (body.action) {
     case "join":
-      return join(db, code, secret, playerInfo(body), now);
+      return join(db, code, secret, playerInfo(body), now, rules);
     case "sync":
       return sync(db, code, secret, body.sample, now);
     case "ready":

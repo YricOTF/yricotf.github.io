@@ -26,7 +26,8 @@ CREATE TABLE `race_rooms` (
 	`host` text NOT NULL,
 	`created` integer NOT NULL,
 	`start` integer DEFAULT 0 NOT NULL,
-	`round` integer DEFAULT 0 NOT NULL
+	`round` integer DEFAULT 0 NOT NULL,
+	`rules` integer DEFAULT 1 NOT NULL
 );
 --> statement-breakpoint
 CREATE INDEX `race_rooms_created` ON `race_rooms` (`created`);

@@ -1,4 +1,5 @@
-import { clamp, randomSeed, RACE_LIMIT_MS, RACE_METRES, SKINS } from "./runner.js";
+import { clamp, randomSeed, RACE_LIMIT_MS, RACE_METRES, RACE_RULES } from "./runner.js?v=2";
+import { normalizeLook } from "./catalog.js?v=2";
 
 const ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 const LIVE_MS = 26_000;
@@ -21,16 +22,16 @@ export class PeerRoom {
     this.data = saved;
   }
 
-  static create(token, name, skin, now = Date.now()) {
+  static create(token, name, skin, now = Date.now(), rules = 1) {
     const code = Array.from(crypto.getRandomValues(new Uint8Array(6)), n => ALPHABET[n & 31]).join("");
     const owner = { ...PeerRoom.player(token, name, skin, now) };
-    return new PeerRoom({ code, seed: randomSeed(), host: owner.id, start: 0, round: 0, players: [owner] });
+    return new PeerRoom({ code, rules: rules === RACE_RULES ? RACE_RULES : 1, seed: randomSeed(), host: owner.id, start: 0, round: 0, players: [owner] });
   }
 
   static player(token, name, skin, now) {
     const tag = typeof name === "string" ? name.replace(/[\p{Cc}\p{Cf}]/gu, "").trim().slice(0, 16) : "";
     return {
-      id: uuid(), token, name: tag || "小恐龙", skin: SKINS.some(s => s.id === skin) ? skin : "classic", joined: now, seen: now,
+      id: uuid(), token, name: tag || "小恐龙", skin: normalizeLook(skin), joined: now, seen: now,
       ready: false, seq: 0, distance: 0, x: 0, y: 0, slide: false, done: false, finish: 0,
     };
   }
@@ -46,9 +47,9 @@ export class PeerRoom {
   }
 
   snapshot(me, now) {
-    const { code, host, seed, start, round, players } = this.data;
+    const { code, host, seed, start, round, rules = 1, players } = this.data;
     return {
-      room: { code, host, seed, start, round, self: me.id, now, phase: this.phase(now),
+      room: { code, host, seed, start, round, rules, self: me.id, now, phase: this.phase(now),
         target: RACE_METRES, deadline: start ? start + RACE_LIMIT_MS : 0,
         players: players.map(({ token: _token, ...player }) => ({
           ...player, online: player.seen > now - LIVE_MS,
@@ -65,7 +66,7 @@ export class PeerRoom {
     player.seq = sample.seq;
     player.distance = Math.max(player.distance, Math.min(distance, plausible));
     player.x = range(sample.x, -3, 3);
-    player.y = range(sample.y, 0, 2.6);
+    player.y = range(sample.y, 0, 3.5);
     player.slide = sample.slide === true;
     if (distance >= RACE_METRES && plausible >= RACE_METRES) {
       const earliest = Math.ceil(RACE_METRES / SPEED - 250);
@@ -84,6 +85,9 @@ export class PeerRoom {
     const isLobby = phase === "lobby";
     let player = room.players.find(item => item.token === payload.token);
     if (!player && payload.action === "join") {
+      if (room.rules === RACE_RULES && payload.rules !== RACE_RULES) {
+        throw new PeerRoomError(409, "房间已启用新版赛道，请刷新游戏后加入。");
+      }
       if (!isLobby) throw new PeerRoomError(409, "这一轮已经开始，请等房主回到大厅。");
       room.players = room.players.filter(item => item.id === room.host || item.seen > now - HOLD_MS);
       if (room.players.length >= 4) throw new PeerRoomError(409, "房间已满，最多 4 人。");

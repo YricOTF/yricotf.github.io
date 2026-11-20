@@ -13,11 +13,14 @@ const host = process.env.HOST || "0.0.0.0";
 if (filename !== ":memory:") await mkdir(dirname(filename), { recursive: true });
 const sql = new DatabaseSync(filename);
 sql.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 4000;");
-if (sql.prepare("PRAGMA user_version").get().user_version < 1) {
+if (sql.prepare("PRAGMA user_version").get().user_version < 2) {
   const schema = await readFile(new URL("./schema.sql", import.meta.url), "utf8");
   sql.exec("BEGIN IMMEDIATE");
   try {
-    if (sql.prepare("PRAGMA user_version").get().user_version < 1) sql.exec(schema + "\nPRAGMA user_version = 1;");
+    const version = sql.prepare("PRAGMA user_version").get().user_version;
+    if (version === 0) sql.exec(schema);
+    if (version === 1) sql.exec("ALTER TABLE race_rooms ADD COLUMN rules INTEGER NOT NULL DEFAULT 1");
+    if (version < 2) sql.exec("PRAGMA user_version = 2");
     sql.exec("COMMIT");
   } catch (error) {
     sql.exec("ROLLBACK");

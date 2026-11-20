@@ -1,4 +1,7 @@
-import { groupsNear, hash, LANES, SKINS, clamp } from "./runner.js";
+import { groupsNear, hash, LANES, clamp, tune } from "./runner.js?v=2";
+import { skinInfo, unpackLook } from "./catalog.js?v=2";
+import { bossAttack, BOSSES } from "./challenge.js?v=2";
+import { drawAccessories, drawSpecies, REX_FIT } from "./avatars.js?v=2";
 
 const FOG = [0.94, 0.94, 0.92];
 const colors = new Map();
@@ -97,8 +100,20 @@ function programFor(gl) {
 export class Scene {
   constructor(canvas) {
     this.canvas = canvas;
+    this.width = canvas.clientWidth;
+    this.height = canvas.clientHeight;
+    if (typeof ResizeObserver === "function") {
+      this.observer = new ResizeObserver(([entry]) => {
+        this.width = entry.contentRect.width;
+        this.height = entry.contentRect.height;
+      });
+      this.observer.observe(canvas);
+    }
     this.vertices = new Float32Array(36 * 6 * 680);
-    this.gl = canvas.getContext("webgl", { alpha: true, antialias: true, depth: true, powerPreference: "low-power" });
+    this.points = new Float32Array(8 * 3);
+    this.touch = window.matchMedia("(pointer: coarse)").matches;
+    this.game = canvas.id === "play-canvas";
+    this.gl = canvas.getContext("webgl", { alpha: true, antialias: !(this.touch && this.game), depth: true, powerPreference: "low-power" });
     this.pixel = this.gl ? null : canvas.getContext("2d");
     if (this.gl) {
       const gl = this.gl;
@@ -112,9 +127,12 @@ export class Scene {
   }
 
   resize() {
-    const density = Math.min(1.65, window.devicePixelRatio || 1);
-    const width = Math.max(1, Math.floor(this.canvas.clientWidth * density));
-    const height = Math.max(1, Math.floor(this.canvas.clientHeight * density));
+    const cssWidth = this.observer ? this.width : this.canvas.clientWidth;
+    const cssHeight = this.observer ? this.height : this.canvas.clientHeight;
+    const pixelLimit = this.game ? Math.sqrt(1_400_000 / Math.max(1, cssWidth * cssHeight)) : 1.65;
+    const density = Math.min(this.touch && this.game ? 1.35 : 1.65, window.devicePixelRatio || 1, pixelLimit);
+    const width = Math.max(1, Math.floor(cssWidth * density));
+    const height = Math.max(1, Math.floor(cssHeight * density));
     if (this.canvas.width !== width || this.canvas.height !== height) {
       this.canvas.width = width;
       this.canvas.height = height;
@@ -125,18 +143,20 @@ export class Scene {
 
   box(x, y, z, w, h, d, color, actor) {
     const dx = w / 2, dy = h / 2, dz = d / 2;
-    const px = [x - dx, x + dx], py = [y - dy, y + dy], pz = [z - dz, z + dz];
-    const corners = [
-      [px[0], py[0], pz[0]], [px[1], py[0], pz[0]], [px[1], py[1], pz[0]], [px[0], py[1], pz[0]],
-      [px[0], py[0], pz[1]], [px[1], py[0], pz[1]], [px[1], py[1], pz[1]], [px[0], py[1], pz[1]],
-    ];
-    if (actor) {
-      for (const point of corners) {
-        const xx = point[0] * actor.scale;
-        const zz = point[2] * actor.scale;
-        point[0] = actor.x + xx * actor.cos + zz * actor.sin;
-        point[1] = actor.y + point[1] * actor.scale * actor.flatten;
-        point[2] = actor.z + zz * actor.cos - xx * actor.sin;
+    const points = this.points;
+    for (let corner = 0; corner < 8; corner++) {
+      const px = x + (corner % 4 === 1 || corner % 4 === 2 ? dx : -dx);
+      const py = y + (corner & 2 ? dy : -dy);
+      const pz = z + (corner & 4 ? dz : -dz);
+      const i = corner * 3;
+      if (actor) {
+        points[i] = actor.x + (px * actor.cos + pz * actor.sin) * actor.scale;
+        points[i + 1] = actor.y + py * actor.scale * actor.flatten;
+        points[i + 2] = actor.z + (pz * actor.cos - px * actor.sin) * actor.scale;
+      } else {
+        points[i] = px;
+        points[i + 1] = py;
+        points[i + 2] = pz;
       }
     }
     if (this.count + 216 > this.vertices.length) {
@@ -144,16 +164,24 @@ export class Scene {
       next.set(this.vertices);
       this.vertices = next;
     }
-    const base = rgb(color);
+    const [r, g, b] = rgb(color);
+    const vertices = this.vertices;
+    let index = this.count;
     for (const face of faces) {
-      const shade = base.map(component => Math.min(1, component * face[4]));
+      const red = Math.min(1, r * face[4]);
+      const green = Math.min(1, g * face[4]);
+      const blue = Math.min(1, b * face[4]);
       for (const corner of triangles) {
-        const point = corners[face[corner]];
-        this.vertices.set(point, this.count);
-        this.vertices.set(shade, this.count + 3);
-        this.count += 6;
+        const offset = face[corner] * 3;
+        vertices[index++] = points[offset];
+        vertices[index++] = points[offset + 1];
+        vertices[index++] = points[offset + 2];
+        vertices[index++] = red;
+        vertices[index++] = green;
+        vertices[index++] = blue;
       }
     }
+    this.count = index;
   }
 
   shadow(x, z, width, length, opacity = 1, ground = 0.015) {
@@ -165,7 +193,8 @@ export class Scene {
 
   dino(x, y, z, angle, scale, phase, skinId, options = {}) {
     const { slide = 0, flash = 0, ghost = false, grounded = true, idle = false } = options;
-    const skin = SKINS.find(s => s.id === skinId) || SKINS[0];
+    const look = unpackLook(skinId);
+    const skin = skinInfo(look.skin);
     const bob = idle ? Math.sin(phase) * 0.043 : Math.abs(Math.sin(phase)) * 0.078;
     const actor = { x, y: y + bob, z, cos: Math.cos(angle), sin: Math.sin(angle), scale, flatten: slide ? 0.5 : 1 };
     const box = (left, up, forward, width, height, depth, color) => {
@@ -174,6 +203,11 @@ export class Scene {
       if (flash && Math.floor(flash * 16) % 2) tint = rgb(tint).map(v => v * 0.42 + 0.38);
       this.box(left, up, forward, width, height, depth, tint, actor);
     };
+    if (skin.species !== "rex") {
+      const fit = drawSpecies(box, skin, phase, idle, grounded);
+      drawAccessories(box, fit, look);
+      return;
+    }
     const body = skin.body, detail = skin.detail;
     const charcoal = skin.id === "pale" ? "#696b64" : "#272826";
     box(0, 1.04, 0.05, 1.03, 0.96, 1.23, body);
@@ -185,7 +219,7 @@ export class Scene {
     box(0, 1.63, -1.065, 1.04, 0.18, 0.66, body);
     box(0, 2.34, -0.74, 0.97, 0.11, 0.52, detail);
     for (const side of [-1, 1]) {
-      const eye = skinId === "visor" ? "#c9cac4" : "#eeeee7";
+      const eye = "#eeeee7";
       box(side * 0.596, 2.17, -0.8, 0.057, 0.17, 0.15, eye);
       box(side * 0.557, 2.045, -1.31, 0.035, 0.069, 0.08, "#30322e");
       box(side * 0.509, 1.734, -1.17, 0.05, 0.072, 0.085, "#d8d9d1");
@@ -206,25 +240,15 @@ export class Scene {
     for (const [z, y, width] of [[0.02, 1.58, 0.32], [0.32, 1.56, 0.27], [0.61, 1.44, 0.22], [0.97, 1.31, 0.16]]) {
       box(0, y, z, width, 0.17, 0.19, detail);
     }
-    if (skinId === "cap") {
-      box(0, 2.48, -0.63, 1.03, 0.23, 0.82, "#151614");
-      box(0, 2.41, -1.14, 1.14, 0.105, 0.59, "#141513");
-      box(0, 2.61, -0.67, 0.18, 0.065, 0.19, "#85867e");
-    } else if (skinId === "scarf") {
-      box(0, 1.6, -0.45, 0.98, 0.18, 0.69, "#d5d5ca");
-      for (const zz of [-0.66, -0.36, -0.08]) box(0.492, 1.61, zz, 0.055, 0.09, 0.12, "#767971");
-      box(0.52, 1.46, 0.06, 0.11, 0.33, 0.27, "#b3b4a9");
-    } else if (skinId === "pale") {
+    if (skin.id === "pale") {
       for (const [yy, zz] of [[1.03, 0.27], [1.22, 0.08], [0.88, -0.13]]) box(0.526, yy, zz, 0.028, 0.125, 0.14, "#85877e");
-    } else if (skinId === "visor") {
-      box(0, 2.17, -0.87, 1.29, 0.22, 0.32, "#100f10");
-      box(0.66, 2.2, -0.88, 0.035, 0.12, 0.19, "#c0c2bd");
-      box(-0.66, 2.2, -0.88, 0.035, 0.12, 0.19, "#c0c2bd");
-    } else if (skinId === "crown") {
-      box(0, 2.45, -0.62, 1.02, 0.16, 0.69, "#b3b4ab");
-      for (const xx of [-0.39, 0, 0.39]) box(xx, 2.59, -0.86, 0.2, 0.24, 0.18, "#d4d5ca");
-      box(0, 2.69, -0.86, 0.115, 0.12, 0.12, "#d4d5ca");
     }
+    if (skin.id === "shadow") {
+      for (let i = 0; i < 4; i++) {
+        box(0, 1.78 - i * 0.11, i * 0.29, 0.29, 0.38 - i * 0.052, 0.21, detail);
+      }
+    }
+    drawAccessories(box, REX_FIT, look);
   }
 
   cactus(x, z, size = 1, flip = 1, soft = false) {
@@ -276,8 +300,121 @@ export class Scene {
     block(-0.05, -0.037, 0.08, 0.08, "#74786d");
   }
 
+  laneMark(x, z, width, length, time, safe = false) {
+    const bright = safe ? "#f1f2e6" : "#393d35";
+    const light = safe ? "#b4b8a8" : "#9a9d8d";
+    const edge = width / 2;
+    this.box(x, 0.013, z, width, 0.019, length, light);
+    for (const side of [-1, 1]) {
+      this.box(x + side * edge, 0.023, z, 0.094, 0.017, length, bright);
+      this.box(x, 0.025, z + side * length / 2, width, 0.018, 0.13, bright);
+    }
+    const move = (time * 2.4) % 0.85;
+    for (let i = -2; i <= 2; i++) {
+      this.box(x, 0.027, z + i * length * 0.14 + move * length * 0.12, width * (safe ? 0.46 : 0.73), 0.019, safe ? 0.15 : 0.21, bright);
+    }
+  }
+
+  meteor(x, z, fall, elapsed) {
+    const t = clamp(fall, 0, 1);
+    if (elapsed > 0.65) return;
+    if (elapsed > 0) {
+      this.shadow(x, z, 2.52, 2.32, 0.94, 0.034);
+      for (let i = 0; i < 7; i++) {
+        const direction = i * Math.PI * 2 / 7;
+        const spread = 0.26 + elapsed * 2.7;
+        const y = 0.1 + (1 - elapsed / 0.68) * (i % 3) * 0.32;
+        this.box(x + Math.cos(direction) * spread, y, z + Math.sin(direction) * spread, 0.24, 0.22, 0.24, i % 2 ? "#687065" : "#eaecde");
+      }
+      return;
+    }
+    if (t <= 0) return;
+    const y = 0.54 + Math.pow(1 - t, 1.55) * 13.8;
+    const xx = x + 1.0 * (1 - t);
+    this.box(xx, y, z, 1.2, 0.93, 1.02, "#53574c");
+    this.box(xx - 0.01, y + 0.42, z - 0.02, 0.81, 0.27, 0.69, "#969b8b");
+    this.box(xx - 0.19, y - 0.06, z + 0.52, 0.64, 0.35, 0.09, "#d7dacd");
+    for (let i = 1; i <= 5; i++) {
+      const size = 0.48 - i * 0.068;
+      this.box(xx + i * 0.08, y + i * 0.47, z - i * 0.17, size, size, size, i % 2 ? "#e3e6da" : "#b1b6a7");
+    }
+  }
+
+  power(x, z, pick, time) {
+    const angle = time * 2 + pick.d;
+    const actor = { x, y: pick.y + Math.sin(time * 4.8 + pick.d) * 0.115, z, cos: Math.cos(angle), sin: Math.sin(angle), scale: 1, flatten: 1 };
+    const tile = (xx, y, w, h, color, depth = 0.25) => this.box(xx, y, 0, w, h, depth, color, actor);
+    const dark = "#393d32", light = "#ebeddf";
+    this.shadow(x, z, 0.93, 0.63, 0.27);
+    if (pick.kind === "magnet") {
+      tile(0, -0.21, 0.69, 0.23, dark);
+      for (const side of [-1, 1]) {
+        tile(side * 0.25, 0.03, 0.23, 0.42, dark);
+        tile(side * 0.25, 0.29, 0.23, 0.14, light);
+      }
+    } else if (pick.kind === "shield") {
+      tile(0, 0.13, 0.7, 0.42, dark);
+      tile(0, -0.19, 0.47, 0.27, dark);
+      tile(0, -0.31, 0.24, 0.16, dark);
+      tile(0, 0.055, 0.16, 0.55, light, 0.28);
+    } else if (pick.kind === "amber") {
+      tile(0, 0, 0.75, 0.47, dark);
+      tile(0, 0, 0.47, 0.74, dark);
+      tile(0, 0.01, 0.49, 0.45, "#c0c3ae", 0.28);
+      for (const side of [-1, 1]) tile(side * 0.12, 0, 0.09, 0.29, light, 0.31);
+    } else {
+      for (let i = 0; i < 4; i++) tile(0.15 - i * 0.12, 0.34 - i * 0.18, 0.42 - i * 0.065, 0.18, i % 2 ? "#a2a698" : "#e9ebdf");
+      tile(-0.12, -0.27, 0.23, 0.13, dark);
+    }
+  }
+
+  battle(run, time) {
+    const state = run.boss;
+    const attack = bossAttack(state);
+    const exposed = state.phase === "exposed";
+    const striking = state.phase === "stagger" || state.phase === "victory";
+    const aiming = state.phase === "warning" || state.phase === "impact";
+    const weakness = LANES[state.weakLane];
+    const leading = LANES[state.lanes[0]] ?? 0;
+    const bossX = exposed || striking ? weakness : aiming ? leading : 0;
+    let z = -15.7 - (state.phase === "intro" ? 13 * (1 - state.age / 1.55) : 0);
+    if (attack.kind === "charge" && state.phase === "impact") z += Math.sin(state.age / 0.33 * Math.PI) * 11;
+    const scale = state.phase === "victory" ? 1.85 * Math.max(0.15, 1 - state.age * 0.98) : 1.85;
+    const tintFlash = striking ? 0.81 - state.age : 0;
+    const yaw = attack.kind === "sweep" && state.phase === "impact" ? Math.PI - 0.7 : Math.PI + 0.06;
+    this.shadow(bossX, z, 3.3 * scale, 2.9 * scale, 0.58);
+    this.dino(bossX, 0, z, yaw, scale, time * 9, BOSSES[state.index].skin, { grounded: true, flash: Math.max(0, tintFlash) });
+
+    if (aiming) {
+      for (const lane of state.lanes) {
+        const x = LANES[lane];
+        this.laneMark(x, -3.85, 2.75, 10.8, time);
+        if (attack.kind === "meteor") this.meteor(x, -0.36,
+          state.phase === "warning" ? Math.max(0, (state.age / attack.windup - 0.16) / 0.84) : 1,
+          state.phase === "impact" ? state.age : 0);
+        if (attack.kind === "sweep" && state.phase === "impact") this.box(x, 0.69, -4.4 + state.age * 27, 2.52, 0.33, 0.59, "#565b50");
+      }
+    } else if (exposed) {
+      this.laneMark(weakness, -5.7, 2.54, 12.9, time * 0.8, true);
+      const crossY = 4.15 + Math.sin(time * 5.5) * 0.14;
+      this.box(weakness, crossY, z, 0.64, 0.14, 0.12, "#eeeee4");
+      this.box(weakness, crossY, z, 0.14, 0.6, 0.13, "#eeeee4");
+    } else if (striking && state.age < 0.38) {
+      const wave = state.age / 0.38;
+      const origin = state.hitFrom ?? LANES[state.strikeLane];
+      this.box(tune(origin, bossX, wave), 0.89 + wave * 1.8, tune(-1, z, wave), 0.62 + wave * 1.58, 0.36, 0.64, "#e7e9da");
+    }
+  }
+
   obstacle(mark, z, time, hit) {
     const x = LANES[mark.lane];
+    if (mark.kind === "meteor") {
+      if (z < -43) return;
+      if (z < 0.75) this.laneMark(x, z, 2.66, 4.35, time);
+      const fall = clamp((z + 23) / 23, 0, 1);
+      this.meteor(x, z, hit ? 1 : fall, z > 0 ? z / 15 : 0);
+      return;
+    }
     if (hit) return;
     if (mark.kind === "cactus") {
       this.shadow(x, z, 1.45, 0.88, 0.5);
@@ -311,7 +448,9 @@ export class Scene {
     const aspect = this.resize();
     this.count = 0;
     const eye = [9.5, 6.8, 13.7];
-    const target = closet ? [0, 1.33, -0.1] : [0, 0.85, 0];
+    const species = skinInfo(unpackLook(skin).skin).species;
+    const lowProfile = species === "horn" || species === "stego" || species === "club";
+    const target = closet ? [0, lowProfile ? 0.94 : 1.23, -0.1] : [0, 0.85, 0];
     const height = closet ? 4.15 : Math.max(6.7, 13.2 / aspect);
     const matrix = mul(ortho(aspect, height), lookAt(eye, target));
     if (closet) {
@@ -355,8 +494,8 @@ export class Scene {
     const aspect = this.resize();
     this.count = 0;
     const cameraShift = run.x * 0.16;
-    const zoomOut = Math.max(0, 1.2 / aspect - 1);
-    const eye = [cameraShift, 4.35 + 1.45 * zoomOut, 7.3 + 5.4 * zoomOut];
+    const zoomOut = Math.max(0, 1.16 / aspect - 1);
+    const eye = [cameraShift, 4.5 + 1.75 * zoomOut, 7.3 + 8.0 * zoomOut];
     const target = [cameraShift * 0.82, 1.08, -11.8];
     const matrix = mul(perspective(aspect), lookAt(eye, target));
     this.box(0, -0.20, -54, 126, 0.32, 164, "#d7d8cf");
@@ -365,9 +504,10 @@ export class Scene {
       this.box(xx, -0.03, -57, 2.94, 0.065, 160, i === 1 ? "#d1d2c8" : "#cfd0c5");
     }
     const distance = run.distance;
-    const first = Math.floor(distance / 7);
-    for (let i = first - 2; i < first + 18; i++) {
-      const z = distance - i * 7;
+    const scenery = distance + (run.boss?.travel || 0);
+    const first = Math.floor(scenery / 7);
+    for (let i = first - 2; i < first + (this.touch ? 15 : 18); i++) {
+      const z = scenery - i * 7;
       for (const x of [-4.67, 4.67]) {
         this.box(x, 0.008, z, 0.18, 0.022, 6.93, (i % 2) ? "#a6a99d" : "#b9bbaf");
       }
@@ -385,25 +525,36 @@ export class Scene {
       }
     }
 
-    const far = Math.floor(distance / 29);
+    const far = Math.floor(scenery / 29);
     for (let i = far; i < far + 5; i++) {
-      const z = distance - i * 29 - 14;
+      const z = scenery - i * 29 - 14;
       const offset = hash(run.seed, i * 21) * 18;
       this.mesa(-21 - offset, z, 2.1, "#b2b4ab");
       this.mesa(20 + offset * 0.8, z - 9, 1.8, "#b7b9ae");
       if (z < -32) this.cloud((i % 2 ? -1 : 1) * (7 + offset), 8 + offset * 0.1, z, 2.0);
     }
 
-    for (const group of groupsNear(run.seed, distance)) {
-      for (const mark of group.obstacles) {
-        const z = distance - mark.d;
-        if (z > 5 || z < -115) continue;
-        this.obstacle(mark, z, time, run.hit[mark.id] != null);
-      }
-      for (const pick of group.fossils) {
-        const z = distance - pick.d;
-        if (z > 5 || z < -113 || run.picked[pick.id] != null) continue;
-        this.fossil(LANES[pick.lane], pick.y + Math.sin(time * 6 + pick.d) * 0.085, z, time * 2.6 + pick.d * 0.58, 0.92);
+    if (run.boss) {
+      this.battle(run, time);
+    } else {
+      for (const group of groupsNear(run.seed, distance, 105, 14, run.mode, run.rules)) {
+        for (const mark of group.obstacles) {
+          const z = distance - mark.d;
+          if (z > 10 || z < -105) continue;
+          this.obstacle(mark, z, time, run.hit[mark.id] != null);
+        }
+        for (const pick of group.fossils) {
+          const z = distance - pick.d;
+          if (z > 5 || z < -104 || run.picked[pick.id] != null) continue;
+          const targetX = LANES[pick.lane];
+          const pull = run.powers.magnet ? clamp((z + 10) / 11, 0, 1) : 0;
+          this.fossil(tune(targetX, run.x, pull), pick.y + Math.sin(time * 6 + pick.d) * 0.085, z, time * 2.6 + pick.d * 0.58, 0.92);
+        }
+        for (const pick of group.powers) {
+          const z = distance - pick.d;
+          if (z > 4 || z < -94 || run.picked[pick.id] != null) continue;
+          this.power(LANES[pick.lane], z, pick, time);
+        }
       }
     }
     for (const rival of rivals) {
@@ -414,6 +565,12 @@ export class Scene {
     }
     this.shadow(run.x, 0.25, 1.43 - run.y * 0.13, 1.93, 0.66 - run.y * 0.16);
     this.dino(run.x, run.y, 0, (LANES[run.lane] - run.x) * -0.16, 0.86, run.phase, skin, { slide: run.slide, flash: run.flash, grounded: run.y < 0.16 });
+    if (run.powers.shield) {
+      for (let i = 0; i < 6; i++) {
+        const a = time * 3 + i * Math.PI / 3;
+        this.box(run.x + Math.cos(a) * 0.86, run.y + 0.55 + i % 2 * 0.34, Math.sin(a) * 1.05, 0.14, 0.22, 0.14, "#eeeeda");
+      }
+    }
     if (run.y < 0.13 && !run.done) {
       for (let i = 0; i < 5; i++) {
         const p = (time * 2.16 + i * 0.22) % 1;
@@ -425,6 +582,12 @@ export class Scene {
     }
     for (const part of particles) this.box(part.x, part.y, part.z, part.size, part.size, part.size, part.color);
     this.draw(matrix, 1);
+  }
+
+  dispose() {
+    this.observer?.disconnect();
+    this.gl?.deleteBuffer(this.buffer);
+    this.gl?.deleteProgram(this.program);
   }
 
   draw(matrix, fog) {
