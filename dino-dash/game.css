@@ -473,6 +473,9 @@ kbd.space-key { min-width: 30px; font-size: 0.72rem; }
   *, *::before, *::after { transition-duration: 0ms !important; }
 }
 
+.topbar { padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left); }
+[data-room-backend="server"] .peer-room-note { display: none; }
+.is-playing .hud { left: max(var(--hud-rim, 19px), env(safe-area-inset-left)); right: max(var(--hud-rim, 19px), env(safe-area-inset-right)); }
 .hero-links { display: flex; gap: 17px; margin-top: 9px; }
 .hero-links .text-button { font-size: 0.86rem; }
 .is-playing .main { width: min(1560px, calc(100% - 28px)); padding: 10px 0 10px; }
@@ -587,7 +590,8 @@ kbd.space-key { min-width: 30px; font-size: 0.72rem; }
 
 @media (max-width: 680px) {
   .hero-links { justify-content: center; }
-  .is-playing .topbar-inner { min-height: 46px; padding-top: env(safe-area-inset-top); }
+  .is-playing .topbar-inner { min-height: 46px; }
+  .is-playing .hud { --hud-rim: 10px; }
   .is-playing .main { width: 100%; padding: 0; }
   .is-playing .console { border-inline-width: 0; border-bottom: 0; }
   .is-playing .stage:has(.play-stage:not([hidden])) { min-height: max(320px, calc(100dvh - 48px - env(safe-area-inset-top))); }
