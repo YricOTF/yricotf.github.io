@@ -1,5 +1,5 @@
-import { clamp, randomSeed, RACE_LIMIT_MS, RACE_METRES, RACE_RULES } from "./runner.js?v=2";
-import { normalizeLook } from "./catalog.js?v=2";
+import { clamp, randomSeed, RACE_LIMIT_MS, RACE_METRES, normalizeRaceRules } from "./runner.js?v=3";
+import { normalizeLook } from "./catalog.js?v=3";
 
 const ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 const LIVE_MS = 26_000;
@@ -25,7 +25,7 @@ export class PeerRoom {
   static create(token, name, skin, now = Date.now(), rules = 1) {
     const code = Array.from(crypto.getRandomValues(new Uint8Array(6)), n => ALPHABET[n & 31]).join("");
     const owner = { ...PeerRoom.player(token, name, skin, now) };
-    return new PeerRoom({ code, rules: rules === RACE_RULES ? RACE_RULES : 1, seed: randomSeed(), host: owner.id, start: 0, round: 0, players: [owner] });
+    return new PeerRoom({ code, rules: normalizeRaceRules(rules), seed: randomSeed(), host: owner.id, start: 0, round: 0, players: [owner] });
   }
 
   static player(token, name, skin, now) {
@@ -85,7 +85,7 @@ export class PeerRoom {
     const isLobby = phase === "lobby";
     let player = room.players.find(item => item.token === payload.token);
     if (!player && payload.action === "join") {
-      if (room.rules === RACE_RULES && payload.rules !== RACE_RULES) {
+      if ((room.rules || 1) > normalizeRaceRules(payload.rules)) {
         throw new PeerRoomError(409, "房间已启用新版赛道，请刷新游戏后加入。");
       }
       if (!isLobby) throw new PeerRoomError(409, "这一轮已经开始，请等房主回到大厅。");

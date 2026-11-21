@@ -1,7 +1,8 @@
-import { groupsNear, hash, LANES, clamp, tune } from "./runner.js?v=2";
-import { skinInfo, unpackLook } from "./catalog.js?v=2";
-import { bossAttack, BOSSES } from "./challenge.js?v=2";
-import { drawAccessories, drawSpecies, REX_FIT } from "./avatars.js?v=2";
+import { biomeAt, BIOMES, flightPose, isFlyer, rideLength } from "./course.js?v=3";
+import { groupsNear, hash, LANES, clamp, tune } from "./runner.js?v=3";
+import { skinInfo, unpackLook } from "./catalog.js?v=3";
+import { bossAttack, BOSSES } from "./challenge.js?v=3";
+import { drawAccessories, drawSpecies, REX_FIT } from "./avatars.js?v=3";
 
 const FOG = [0.94, 0.94, 0.92];
 const colors = new Map();
@@ -291,13 +292,13 @@ export class Scene {
   fossil(x, y, z, angle, scale = 1) {
     const actor = { x, y, z, cos: Math.cos(angle), sin: Math.sin(angle), scale, flatten: 1 };
     const block = (left, up, w, h, color) => this.box(left, up, 0, w, h, 0.12, color, actor);
-    block(0, 0, 0.42, 0.65, "#55584f");
-    block(0, 0, 0.63, 0.43, "#55584f");
-    block(0, 0, 0.42, 0.43, "#e4e5da");
-    block(0, 0.12, 0.27, 0.09, "#74786d");
-    block(0.1, 0, 0.077, 0.21, "#74786d");
-    block(0.03, -0.1, 0.17, 0.08, "#74786d");
-    block(-0.05, -0.037, 0.08, 0.08, "#74786d");
+    block(0, 0, 0.42, 0.65, "#796b46");
+    block(0, 0, 0.63, 0.43, "#796b46");
+    block(0, 0, 0.42, 0.43, "#e8d9a4");
+    block(0, 0.12, 0.27, 0.09, "#a08b58");
+    block(0.1, 0, 0.077, 0.21, "#a08b58");
+    block(0.03, -0.1, 0.17, 0.08, "#a08b58");
+    block(-0.05, -0.037, 0.08, 0.08, "#a08b58");
   }
 
   laneMark(x, z, width, length, time, safe = false) {
@@ -329,6 +330,10 @@ export class Scene {
       return;
     }
     if (t <= 0) return;
+    if (t >= 0.68) {
+      const grow = (t - 0.68) / 0.32;
+      this.shadow(x, z, 1.42 + grow * 1.03, 0.69 + grow * 1.55, 0.75, 0.035);
+    }
     const y = 0.54 + Math.pow(1 - t, 1.55) * 13.8;
     const xx = x + 1.0 * (1 - t);
     this.box(xx, y, z, 1.2, 0.93, 1.02, "#53574c");
@@ -378,17 +383,21 @@ export class Scene {
     const leading = LANES[state.lanes[0]] ?? 0;
     const bossX = exposed || striking ? weakness : aiming ? leading : 0;
     let z = -15.7 - (state.phase === "intro" ? 13 * (1 - state.age / 1.55) : 0);
+    if (state.phase === "warning" && attack.kind !== "meteor") {
+      const buildup = state.age / attack.windup;
+      z -= (attack.feint && !state.retargeted ? 3.3 : 1.7) * Math.sin(buildup * Math.PI);
+    }
     if (attack.kind === "charge" && state.phase === "impact") z += Math.sin(state.age / 0.33 * Math.PI) * 11;
     const scale = state.phase === "victory" ? 1.85 * Math.max(0.15, 1 - state.age * 0.98) : 1.85;
     const tintFlash = striking ? 0.81 - state.age : 0;
     const yaw = attack.kind === "sweep" && state.phase === "impact" ? Math.PI - 0.7 : Math.PI + 0.06;
     this.shadow(bossX, z, 3.3 * scale, 2.9 * scale, 0.58);
-    this.dino(bossX, 0, z, yaw, scale, time * 9, BOSSES[state.index].skin, { grounded: true, flash: Math.max(0, tintFlash) });
+    this.dino(bossX, 0, z, yaw, scale, time * 9, BOSSES[state.index].skin, { grounded: true, slide: state.phase === "warning" && attack.kind === "charge" && state.age > 0.12 && state.age < attack.windup - 0.1, flash: Math.max(0, tintFlash) });
 
     if (aiming) {
       for (const lane of state.lanes) {
         const x = LANES[lane];
-        this.laneMark(x, -3.85, 2.75, 10.8, time);
+        if (attack.kind !== "meteor") this.laneMark(x, -3.85, 2.75, 10.8, time);
         if (attack.kind === "meteor") this.meteor(x, -0.36,
           state.phase === "warning" ? Math.max(0, (state.age / attack.windup - 0.16) / 0.84) : 1,
           state.phase === "impact" ? state.age : 0);
@@ -406,17 +415,122 @@ export class Scene {
     }
   }
 
+  pterosaur(mark, relative, time) {
+    const pose = flightPose(mark, relative);
+    const { x, y, z, yaw, bank } = pose;
+    const wing = Math.sin(time * 16 + mark.d) * 0.21;
+    const actor = { x, y, z, cos: Math.cos(yaw), sin: Math.sin(yaw), scale: 1, flatten: 1 };
+    const box = (xx, yy, zz, w, h, d, c) => this.box(xx, yy, zz, w, h, d, c, actor);
+    this.shadow(x, z, 2.5, 1.27, y > 3 ? 0.19 : 0.38);
+    box(0, 0, 0, 0.43, 0.36, 0.86, "#414640");
+    box(0, 0.15, 0.43, 0.30, 0.26, 0.37, "#414640");
+    box(0, 0.18, 0.75, 0.16, 0.12, 0.40, "#7e8174");
+    box(0, 0.31, 0.22, 0.12, 0.25, 0.23, "#777e72");
+    for (const side of [-1, 1]) {
+      box(side * 0.168, 0.21, 0.51, 0.035, 0.068, 0.09, "#eeeee1");
+      for (let i = 0; i < 4; i++) {
+        const yy = wing * (i + 1) * 0.42 + side * bank * (i + 1) * 0.28;
+        box(side * (0.42 + i * 0.30), yy, 0.16 - i * 0.19,
+          0.39, 0.125 - i * 0.019, 0.75 - i * 0.136, i % 2 ? "#6a7268" : "#596258");
+      }
+    }
+  }
+
+  jungleTree(x, z, height, variant) {
+    this.box(x, height * 0.48, z, 0.83, height, 0.89, "#5e6553");
+    this.box(x + 0.29, height * 0.68, z + 0.18, 0.25, height * 0.46, 0.54, "#737b66");
+    this.box(x, height * 0.84, z, 2.3, 0.46, 0.67, "#606a55");
+    this.box(x + 0.29, height, z, 3.8, 0.76, 2.95, variant ? "#687e65" : "#637660");
+    this.box(x - 0.71, height + 0.57, z + 0.1, 2.72, 0.61, 2.39, "#859480");
+    this.box(x + 0.51, height + 1.02, z - 0.26, 1.77, 0.43, 1.63, "#94a18b");
+  }
+
+  minerals(x, z, size = 1) {
+    for (let i = -1; i <= 1; i++) {
+      const h = size * (i ? 0.56 : 1.0);
+      this.box(x + i * size * 0.34, h * 0.49, z + Math.abs(i) * 0.22, 0.32 * size, h, 0.31 * size, "#91b0a6");
+      this.box(x + i * size * 0.34, h * 1.02, z + Math.abs(i) * 0.22, 0.19 * size, 0.11 * size, 0.18 * size, "#c8dacf");
+    }
+  }
+
+  trackside(biome, x, z, rand, side) {
+    if (biome.id === "jungle") {
+      this.jungleTree(x, z, 4.2 + rand * 3, rand > 0.5);
+      for (let i = 0; i < 3; i++) {
+        this.box(x - side * (0.8 + i * 0.65), 0.35 + i * 0.21, z + i * 0.46, 1.25 - i * 0.1, 0.19, 0.46, "#728c70");
+      }
+    } else if (biome.id === "cave") {
+      this.box(x + side * 0.7, 2.98, z, 3.4, 6.0, 7.04, "#5c6662");
+      this.box(x, 6.25, z - 0.22, 3.4, 1.62, 6.85, "#666f6b");
+      this.box(x - side * 1.34, 4.81, z + 0.6, 1.01, 2.8, 1.16, "#737e79");
+      if (rand > 0.36) this.minerals(x - side * 1.98, z - 0.9, 0.97 + rand * 0.68);
+    } else if (rand < 0.34) this.cactus(x, z - 2.3, 0.47 + rand * 2.54, side, true);
+    else if (rand > 0.47) this.rock(x, z - 0.27, 0.27 + rand * 0.5, true);
+  }
+
+  rails(x, z, length) {
+    this.box(x, 0.014, z, 1.09, 0.022, length, "#767d75");
+    for (const side of [-1, 1]) this.box(x + side * 0.43, 0.05, z, 0.07, 0.048, length, "#adb4a8");
+    for (let i = -1; i <= 1; i++) this.box(x, 0.026, z + length * i / 3, 1.26, 0.036, 0.14, "#575d55");
+  }
+
+  cart(x, z, loaded = false) {
+    this.box(x, 0.37, z, 1.25, 0.31, 1.40, "#676256");
+    for (const side of [-1, 1]) {
+      this.box(x + side * 0.56, 0.64, z, 0.16, 0.55, 1.32, "#918676");
+      this.box(x, 0.63, z + side * 0.62, 1.17, 0.52, 0.16, "#7f7567");
+      for (const edge of [-1, 1]) this.box(x + side * 0.52, 0.19, z + edge * 0.43, 0.26, 0.27, 0.32, "#414842");
+    }
+    if (loaded) {
+      this.box(x, 0.93, z, 0.92, 0.33, 0.91, "#5f6b66");
+      this.box(x + 0.19, 1.27, z, 0.47, 0.39, 0.48, "#8fa69d");
+    }
+  }
+
+  vine(x, z, held = false, swing = 0, lean = 0) {
+    if (!held) {
+      this.box(x, 0.009, z + 2.30, 2.91, 0.024, 5.8, "#39453b");
+      this.box(x, 0.031, z - 0.5, 2.95, 0.058, 0.38, "#708169");
+    }
+    const low = held ? swing + 1.37 : 1.44;
+    for (let i = 0; i < 9; i++) {
+      const p = i / 8;
+      this.box(x + Math.sin(i * 0.72) * 0.045, low + p * 0.54 * (9 - low), z - lean * p,
+        0.16, 0.23 + 0.0675 * (9 - low), 0.15, i % 2 ? "#546a50" : "#7b8f72");
+    }
+    this.box(x, low, z, 0.35, 0.18, 0.23, "#bac6ad");
+    this.box(x, low + 0.48 * (9 - low), z - lean, 1.51, 0.22, 0.76, "#70896e");
+  }
+
   obstacle(mark, z, time, hit) {
     const x = LANES[mark.lane];
     if (mark.kind === "meteor") {
       if (z < -43) return;
-      if (z < 0.75) this.laneMark(x, z, 2.66, 4.35, time);
-      const fall = clamp((z + 23) / 23, 0, 1);
+      const fall = clamp((z + 26) / 26, 0, 1);
       this.meteor(x, z, hit ? 1 : fall, z > 0 ? z / 15 : 0);
       return;
     }
     if (hit) return;
-    if (mark.kind === "cactus") {
+    if (isFlyer(mark.kind)) {
+      this.pterosaur(mark, z, time);
+    } else if (mark.kind === "vine") {
+      this.vine(x, z);
+    } else if (mark.kind === "cart" || mark.kind === "minecart") {
+      this.cart(x, z * (mark.kind === "cart" ? 1.25 : 1), mark.kind === "cart");
+    } else if (mark.kind === "ore") {
+      this.minerals(x, z, 1.75);
+    } else if (mark.kind === "log" || mark.kind === "root") {
+      this.shadow(x, z, 2.25, 1.72, 0.53);
+      this.box(x, 0.39, z, 2.25, 0.72, 1.18, mark.kind === "log" ? "#777268" : "#6a715e");
+      this.box(x + 0.12, 0.79, z + 0.07, 1.87, 0.16, 0.76, "#989484");
+      for (const offset of [-0.55, 0.27]) this.box(x + offset, 0.53, z + 0.62, 0.16, 0.24, 0.07, "#aea995");
+    } else if (mark.kind === "branch" || mark.kind === "stalactite") {
+      const stone = mark.kind === "stalactite";
+      this.box(x, 2.54, z, stone ? 1.55 : 2.66, stone ? 1.67 : 0.46, 0.82, stone ? "#626f6a" : "#5e715b");
+      this.box(x, 1.45, z, stone ? 0.55 : 2.06, 0.34, 0.72, stone ? "#89928c" : "#6e8368");
+      if (stone) this.box(x + 0.08, 4.19, z + 0.32, 2.31, 2.47, 1.47, "#5f6c66");
+      else this.box(x + 0.95, 2.82, z + 0.02, 1.09, 0.37, 1.35, "#81997b");
+    } else if (mark.kind === "cactus") {
       this.shadow(x, z, 1.45, 0.88, 0.5);
       this.cactus(x - 0.17, z, 0.93, 1);
       this.cactus(x + 0.43, z - 0.2, 0.57, -1, true);
@@ -498,40 +612,44 @@ export class Scene {
     const eye = [cameraShift, 4.5 + 1.75 * zoomOut, 7.3 + 8.0 * zoomOut];
     const target = [cameraShift * 0.82, 1.08, -11.8];
     const matrix = mul(perspective(aspect), lookAt(eye, target));
-    this.box(0, -0.20, -54, 126, 0.32, 164, "#d7d8cf");
-    this.box(0, -0.066, -57, 9.4, 0.13, 160, "#bec0b5");
-    for (const [i, xx] of LANES.entries()) {
-      this.box(xx, -0.03, -57, 2.94, 0.065, 160, i === 1 ? "#d1d2c8" : "#cfd0c5");
-    }
     const distance = run.distance;
+    const biome = run.rules >= 3 ? biomeAt(run.seed, distance) : BIOMES[0];
     const scenery = distance + (run.boss?.travel || 0);
     const first = Math.floor(scenery / 7);
-    for (let i = first - 2; i < first + (this.touch ? 15 : 18); i++) {
+    this.box(0, -0.20, -54, 126, 0.32, 164, biome.ground);
+    const behind = Math.ceil((eye[2] + 6) / 7);
+    for (let i = first - behind; i < first + (this.touch ? 15 : 18); i++) {
       const z = scenery - i * 7;
-      for (const x of [-4.67, 4.67]) {
-        this.box(x, 0.008, z, 0.18, 0.022, 6.93, (i % 2) ? "#a6a99d" : "#b9bbaf");
-      }
-      for (const x of [-1.5, 1.5]) this.box(x, 0.012, z, 0.055, 0.025, 2.44, "#b1b4a7");
-      for (const side of [-1, 1]) {
-        const x = side * (5.62 + hash(run.seed + side, i) * 7);
-        const r = hash(run.seed ^ 17, i * side);
-        if (r < 0.34) this.cactus(x, z - 2.3, 0.47 + r * 2.54, side, true);
-        else if (r > 0.47) this.rock(x, z - 0.27, 0.27 + r * 0.5, true);
-        for (let j = 0; j < 3; j++) {
-          const salt = i * 13 + j * side;
-          const fx = side * (5.13 + hash(run.seed ^ 123, salt) * 17);
-          this.box(fx, -0.03, z + j * 2, 0.08 + r * 0.18, 0.022, 0.08 + r * 0.09, "#aeb1a5");
+      const local = run.boss || run.rules < 3 ? biome : biomeAt(run.seed, i * 7);
+      this.box(0, -0.041, z, 9.42, 0.083, 7, local.road);
+      for (const x of [-4.67, 4.67]) this.box(x, 0.012, z, 0.18, 0.025, 6.99, local.shoulder);
+      for (const x of [-1.5, 1.5]) this.box(x, 0.014, z, 0.055, 0.023, 2.44, local.line);
+      if (local.id === "cave") {
+        const roof = Math.max(8.1, eye[1] + 1.08);
+        this.box(0, roof + 0.75, z, 20, 1.8, 7.02, i % 2 ? "#535e5a" : "#59645f");
+        if (i % 3 === 0) {
+          const ridge = (hash(run.seed ^ 0xa67d, i) - 0.5) * 7.6;
+          this.box(ridge, roof - 0.31, z, 1.82, 0.79, 2.75, "#65716b");
+          this.box(ridge + 0.22, roof - 0.79, z + 0.27, 1.03, 0.46, 1.65, "#6f7971");
         }
+        for (const lane of LANES) this.rails(lane, z, 6.98);
+      }
+      for (const side of [-1, 1]) {
+        const offset = hash(run.seed + side, i);
+        const x = side * (local.id === "cave" ? 7.8 + offset * 2.2 : 5.62 + offset * 6);
+        this.trackside(local, x, z, hash(run.seed ^ 17, i * side), side);
       }
     }
 
-    const far = Math.floor(scenery / 29);
-    for (let i = far; i < far + 5; i++) {
-      const z = scenery - i * 29 - 14;
-      const offset = hash(run.seed, i * 21) * 18;
-      this.mesa(-21 - offset, z, 2.1, "#b2b4ab");
-      this.mesa(20 + offset * 0.8, z - 9, 1.8, "#b7b9ae");
-      if (z < -32) this.cloud((i % 2 ? -1 : 1) * (7 + offset), 8 + offset * 0.1, z, 2.0);
+    if (biome.id === "wild") {
+      const far = Math.floor(distance / 29);
+      for (let i = far; i < far + 5; i++) {
+        const z = distance - i * 29 - 14;
+        const offset = hash(run.seed, i * 21) * 18;
+        this.mesa(-21 - offset, z, 2.1, "#b2b4ab");
+        this.mesa(20 + offset * 0.8, z - 9, 1.8, "#b7b9ae");
+        if (z < -32) this.cloud((i % 2 ? -1 : 1) * (7 + offset), 8 + offset * 0.1, z, 2.0);
+      }
     }
 
     if (run.boss) {
@@ -546,7 +664,7 @@ export class Scene {
         for (const pick of group.fossils) {
           const z = distance - pick.d;
           if (z > 5 || z < -104 || run.picked[pick.id] != null) continue;
-          const targetX = LANES[pick.lane];
+          const targetX = pick.x ?? LANES[pick.lane];
           const pull = run.powers.magnet ? clamp((z + 10) / 11, 0, 1) : 0;
           this.fossil(tune(targetX, run.x, pull), pick.y + Math.sin(time * 6 + pick.d) * 0.085, z, time * 2.6 + pick.d * 0.58, 0.92);
         }
@@ -562,6 +680,11 @@ export class Scene {
       if (z < -100 || z > 6 || Math.abs(z) < 0.8 && Math.abs(rival.visualX - run.x) < 0.77) continue;
       this.shadow(rival.visualX, z, 1.35, 1.48, 0.18);
       this.dino(rival.visualX, rival.visualY, z, 0, 0.82, time * 14, rival.skin, { slide: rival.slide, ghost: true, grounded: rival.visualY < 0.2 });
+    }
+    if (run.ride?.kind === "minecart") this.cart(run.x, 0);
+    if (run.ride?.kind === "vine") {
+      const t = (run.distance - run.ride.d) / rideLength("vine");
+      this.vine(run.x, 0, true, run.y, (t - 0.5) * 6.2);
     }
     this.shadow(run.x, 0.25, 1.43 - run.y * 0.13, 1.93, 0.66 - run.y * 0.16);
     this.dino(run.x, run.y, 0, (LANES[run.lane] - run.x) * -0.16, 0.86, run.phase, skin, { slide: run.slide, flash: run.flash, grounded: run.y < 0.16 });
@@ -581,7 +704,7 @@ export class Scene {
       }
     }
     for (const part of particles) this.box(part.x, part.y, part.z, part.size, part.size, part.size, part.color);
-    this.draw(matrix, 1);
+    this.draw(matrix, 1, biome.fog);
   }
 
   dispose() {
@@ -590,9 +713,9 @@ export class Scene {
     this.gl?.deleteProgram(this.program);
   }
 
-  draw(matrix, fog) {
+  draw(matrix, fog, sky = FOG) {
     if (!this.gl) {
-      this.drawFallback(matrix, fog);
+      this.drawFallback(matrix, fog, sky);
       return;
     }
     const gl = this.gl;
@@ -606,11 +729,11 @@ export class Scene {
     gl.enableVertexAttribArray(this.locations.aColor);
     gl.uniformMatrix4fv(this.uniforms.uMatrix, false, matrix);
     gl.uniform1f(this.uniforms.uFog, fog);
-    gl.uniform3fv(this.uniforms.uSky, FOG);
+    gl.uniform3fv(this.uniforms.uSky, sky);
     gl.drawArrays(gl.TRIANGLES, 0, this.count / 6);
   }
 
-  drawFallback(matrix, fog) {
+  drawFallback(matrix, fog, sky) {
     if (!this.pixel) return;
     const { width, height } = this.canvas;
     const ctx = this.pixel;
@@ -632,7 +755,7 @@ export class Scene {
       }
       if (clipped || vertices.every(v => v[0] < 0) || vertices.every(v => v[0] > width) || vertices.every(v => v[1] < 0) || vertices.every(v => v[1] > height)) continue;
       const haze = clamp((vertices[0][2] - 29) / 95, 0, 1) * fog;
-      const color = FOG.map((shade, j) => Math.round((this.vertices[i + 3 + j] * (1 - haze) + shade * haze) * 255));
+      const color = sky.map((shade, j) => Math.round((this.vertices[i + 3 + j] * (1 - haze) + shade * haze) * 255));
       quads.push({ depth, color, vertices });
     }
     quads.sort((a, b) => b.depth - a.depth);

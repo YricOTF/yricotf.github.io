@@ -1,3 +1,5 @@
+import { POWERUPS } from "./challenge.js?v=3";
+
 export const SKINS = [
   { id: "classic", name: "原色暴龙", item: "石墨色与方形长吻", species: "rex", body: "#383937", detail: "#525350", cost: 0 },
   { id: "pale", name: "月岩暴龙", item: "浅灰岩纹", species: "rex", body: "#aaaba4", detail: "#c4c5bd", cost: 7 },
@@ -77,22 +79,49 @@ export function unlock(profile, item) {
   return true;
 }
 
-export function openChest(profile, random = () => crypto.getRandomValues(new Uint32Array(1))[0] / 4294967296) {
-  if (!profile.chestOpened) profile.chestOpened = true;
-  else if (profile.fossils >= CHEST_COST) profile.fossils -= CHEST_COST;
-  else return null;
+export function chestPrice(profile, count) {
+  return (count - (profile.chestOpened ? 0 : 1)) * CHEST_COST;
+}
 
-  const roll = random();
-  const group = roll < 0.48 ? "skin" : roll < 0.82 ? "gear" : "wildcard";
-  const pool = rewards.filter(item => (group === "skin" ? !item.slot : group === "gear" && item.slot) && !owns(profile, item) && fragmentBalance(profile, item) < item.cost);
-  if (!pool.length) {
-    const count = 2 + Math.floor(random() * 3);
-    profile.universal += count;
-    return { item: null, count };
+const BOOSTS = Object.keys(POWERUPS);
+const randomUnit = () => crypto.getRandomValues(new Uint32Array(1))[0] / 4294967296;
+
+function chestReward(profile, roll) {
+  const tier = roll();
+  if (tier >= 0.80) {
+    const id = BOOSTS[Math.floor(roll() * BOOSTS.length)];
+    profile.boosts[id] = Math.min(9999, (profile.boosts[id] || 0) + 1);
+    return { type: "boost", id, count: 1 };
   }
-  const item = pool[Math.floor(random() * pool.length)];
-  const previous = fragmentBalance(profile, item);
-  const count = 3 + Math.floor(random() * 3);
-  profile.fragments[item.id] = previous + count;
-  return { item, count };
+
+  const pool = tier >= 0.65 ? [] : rewards.filter(item =>
+    (tier < 0.40 ? !item.slot : !!item.slot) && !owns(profile, item) && fragmentBalance(profile, item) < item.cost);
+  if (!pool.length) {
+    const count = 2 + Math.floor(roll() * 3);
+    profile.universal += count;
+    return { type: "wildcard", id: "", count };
+  }
+  const item = pool[Math.floor(roll() * pool.length)];
+  const count = 3 + Math.floor(roll() * 3);
+  profile.fragments[item.id] = fragmentBalance(profile, item) + count;
+  return { type: "shard", id: item.id, count };
+}
+
+export function openChests(profile, count, roll = randomUnit) {
+  if (count !== 1 && count !== 10) return null;
+  const price = chestPrice(profile, count);
+  if (profile.fossils < price) return null;
+  profile.fossils -= price;
+  profile.chestOpened = true;
+  profile.chestReceipt = Array.from({ length: count }, () => chestReward(profile, roll));
+  return profile.chestReceipt;
+}
+
+export function restoreRewards(receipt) {
+  if (!Array.isArray(receipt)) return [];
+  return receipt.slice(0, 10).filter(reward =>
+    Number.isInteger(reward?.count) && reward.count >= 1 && reward.count <= 5 &&
+    (reward.type === "wildcard" || reward.type === "boost" && BOOSTS.includes(reward.id) ||
+     reward.type === "shard" && rewards.some(item => item.id === reward.id)))
+    .map(({ type, id, count }) => ({ type, id, count }));
 }

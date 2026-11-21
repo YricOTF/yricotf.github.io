@@ -1,5 +1,6 @@
-import { loadRun } from "./runner.js?v=2";
-import { ACCESSORIES, SKINS, WARDROBE, unpackLook } from "./catalog.js?v=2";
+import { POWERUPS } from "./challenge.js?v=3";
+import { loadRun } from "./runner.js?v=3";
+import { ACCESSORIES, restoreRewards, SKINS, WARDROBE, unpackLook } from "./catalog.js?v=3";
 
 const KEY = "dino-dash.save.v1";
 
@@ -40,6 +41,7 @@ export function normalizeSave(raw) {
     const count = points(data.fragments?.[item.id]);
     if (item.cost && count) fragments[item.id] = Math.min(9999, count);
   }
+  const boosts = Object.fromEntries(Object.keys(POWERUPS).map(id => [id, Math.min(9999, points(data.boosts?.[id]))]));
   return {
     version: 2,
     best: points(data.best),
@@ -52,6 +54,9 @@ export function normalizeSave(raw) {
     neck: equipped("neck") ? neck : "",
     fragments,
     universal: points(data.universal),
+    boosts,
+    boostSelected: boosts[data.boostSelected] > 0 ? data.boostSelected : "",
+    chestReceipt: restoreRewards(data.chestReceipt),
     chestOpened: data.chestOpened === true,
     sound: data.sound !== false,
     nick: typeof data.nick === "string" ? data.nick.slice(0, 16) : "",
@@ -76,6 +81,10 @@ export class Save {
       this.available = false;
     }
     return this.current;
+  }
+
+  exclusive(fn) {
+    return globalThis.navigator?.locks ? navigator.locks.request(KEY, fn) : Promise.resolve().then(fn);
   }
 
   change(fn) {

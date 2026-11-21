@@ -1,8 +1,9 @@
-import { control, groupsNear, loadRun, newPractice, newRun, RACE_METRES, RACE_RULES, stepRun, tune } from "./runner.js?v=2";
-import { ACCESSORIES, CHEST_COST, fragmentBalance, openChest, owns, packLook, SKINS, unlock, unpackLook, WARDROBE } from "./catalog.js?v=2";
-import { bossAttack, BOSSES, LANE_NAMES, POWERUPS } from "./challenge.js?v=2";
-import { Scene } from "./scene.js?v=2";
-import { normalizeSave, readSession, Save, writeSession } from "./storage.js?v=2";
+import { biomeAt, BIOMES } from "./course.js?v=3";
+import { control, normalizeRaceRules, loadRun, newPractice, newRun, RACE_METRES, RACE_RULES, stepRun, tune } from "./runner.js?v=3";
+import { ACCESSORIES, chestPrice, fragmentBalance, openChests, owns, packLook, SKINS, unlock, unpackLook, WARDROBE } from "./catalog.js?v=3";
+import { BOSSES, POWERUPS } from "./challenge.js?v=3";
+import { Scene } from "./scene.js?v=3";
+import { normalizeSave, readSession, Save, writeSession } from "./storage.js?v=3";
 import { RoomClient } from "./network.js";
 
 const RACE_SAVE = "dino-dash.race.v1";
@@ -44,6 +45,7 @@ class Sound {
     const tones = {
       jump: [330, 590, 0.12], fossil: [720, 1130, 0.103], hit: [145, 57, 0.21],
       tick: [440, 440, 0.081], go: [600, 900, 0.148], unlock: [470, 920, 0.21],
+      chain: [540, 1350, 0.21], ride: [325, 650, 0.16], feint: [205, 111, 0.12],
       power: [325, 960, 0.18], shield: [450, 185, 0.15], "boss-strike": [180, 710, 0.18],
       "boss-clear": [490, 1170, 0.27], "boss-enter": [125, 340, 0.24],
     };
@@ -91,6 +93,13 @@ export function mount(root, { roomTransport = null } = {}) {
   let selected = save.current.skin;
   let wardrobeSlot = "skin";
   let bossHudKey = "";
+  let currentBiome = "";
+  let biomeTimer;
+  let launching = false;
+  let chestBusy = false;
+  let drawTimer;
+  let drawFinish;
+  let shownReceipt = "";
   let practiceIndex = 0;
   let imported = null;
   let startAt = 0;
@@ -222,7 +231,9 @@ export function mount(root, { roomTransport = null } = {}) {
     show("boss-hud", false);
     show("strike-controls", false);
     show("strike-key", false);
-    show("meteor-warning", false);
+    show("biome-title", false);
+    clearTimeout(biomeTimer);
+    currentBiome = "";
     show("active-powers", false);
     bossHudKey = "";
   }
@@ -239,20 +250,35 @@ export function mount(root, { roomTransport = null } = {}) {
     updateMenu();
   }
 
-  function launchSolo(continuing = false, replace = false) {
-    if (mode === "race" || client.session) return;
-    const profile = save.read();
-    if (!continuing && profile.checkpoint && !replace) {
-      openPanel("new-run");
-      return;
+  async function launchSolo(continuing = false, replace = false) {
+    if (mode === "race" || client.session || launching) return;
+    launching = true;
+    try {
+      const next = await save.exclusive(() => {
+        const profile = save.read();
+        if (continuing) return loadRun(profile.checkpoint);
+        if (profile.checkpoint && !replace) return "confirm";
+        const started = newRun();
+        const boost = profile.boostSelected;
+        if (boost && profile.boosts[boost] > 0) {
+          profile.boosts[boost]--;
+          profile.boostSelected = "";
+          started.powers[boost] = POWERUPS[boost].duration;
+        }
+        profile.checkpoint = started;
+        profile.savedAt = Date.now();
+        save.write(profile);
+        return started;
+      });
+      if (next === "confirm") openPanel("new-run");
+      else if (!next) displayToast("没有单人存档。");
+      else {
+        beginSolo(next, 2020);
+        lastSaved = performance.now();
+      }
+    } finally {
+      launching = false;
     }
-    const checkpoint = continuing ? loadRun(profile.checkpoint) : null;
-    if (continuing && !checkpoint) {
-      displayToast("没有可继续的单人存档。");
-      return;
-    }
-    beginSolo(checkpoint || newRun(), 2450);
-    snapshotSolo();
   }
 
   function beginSolo(next, countdown) {
@@ -304,7 +330,7 @@ export function mount(root, { roomTransport = null } = {}) {
       text("end-title", run.won ? "挑战成功" : "挑战结束");
       text("end-distance", run.boss.hp);
       nodes["end-distance"].parentElement.hidden = true;
-      text("end-summary", run.won ? `已击败${BOSSES[practiceIndex].name}。` : `首领还剩 ${run.boss.hp} 格生命。先避开攻击，再到亮色车道反击。`);
+      text("end-summary", run.won ? `已击败${BOSSES[practiceIndex].name}。` : `首领剩余 ${run.boss.hp} 格生命。`);
     } else {
       let record = false;
       save.change(profile => {
@@ -318,7 +344,7 @@ export function mount(root, { roomTransport = null } = {}) {
       nodes["end-distance"].parentElement.hidden = false;
       text("end-distance", distance);
       const wins = run.bossWins ? ` · 击败 ${run.bossWins} 位首领` : "";
-      text("end-summary", `收集 ${gain} 枚化石${wins}${record ? " · 刷新了单人纪录！" : ""}`);
+      text("end-summary", `收集 ${gain} 金币${wins}${record ? " · 刷新了单人纪录！" : ""}`);
     }
     updateMenu();
     openPanel("end");
@@ -430,29 +456,99 @@ export function mount(root, { roomTransport = null } = {}) {
     renderCloset();
   }
 
+  function drawReceipt(receipt) {
+    if (shownReceipt === JSON.stringify(receipt)) return;
+    shownReceipt = JSON.stringify(receipt);
+    const tray = nodes["chest-results"];
+    tray.replaceChildren(...receipt.map((reward, index) => {
+      const card = document.createElement("div");
+      const symbol = document.createElement("span");
+      const label = document.createElement("strong");
+      const amount = document.createElement("small");
+      card.className = "reward-card";
+      card.dataset.reward = reward.type;
+      card.style.setProperty("--order", index);
+      symbol.className = "reward-symbol";
+      symbol.textContent = reward.type === "boost" ? POWERUPS[reward.id].symbol : reward.type === "wildcard" ? "◆" : "◇";
+      const item = WARDROBE.find(entry => entry.id === reward.id);
+      label.textContent = reward.type === "boost" ? POWERUPS[reward.id].name : item ? item.name : "万能碎片";
+      amount.textContent = reward.type === "shard" ? `碎片 ×${reward.count}` : `×${reward.count}`;
+      card.append(symbol, label, amount);
+      return card;
+    }));
+    tray.dataset.count = String(receipt.length);
+    nodes["chest-preview"].classList.toggle("opened", receipt.length > 0);
+  }
+
+  function renderBoosts(profile) {
+    const slots = Object.keys(POWERUPS).filter(id => profile.boosts[id] > 0);
+    show("boost-rack", slots.length > 0);
+    nodes["boost-options"].replaceChildren(...slots.map(id => {
+      const option = document.createElement("button");
+      option.className = "boost-option";
+      option.type = "button";
+      option.dataset.boost = id;
+      option.textContent = `${POWERUPS[id].symbol} ×${profile.boosts[id]}`;
+      option.setAttribute("aria-label", `${POWERUPS[id].name} ×${profile.boosts[id]}`);
+      option.setAttribute("aria-pressed", String(profile.boostSelected === id));
+      option.title = POWERUPS[id].name;
+      return option;
+    }));
+  }
+
   function renderChest() {
     const profile = save.current;
     text("chest-fossils", profile.fossils);
     text("chest-universal", profile.universal);
-    nodes["chest-open"].disabled = profile.chestOpened && profile.fossils < CHEST_COST;
-    text("chest-open", !profile.chestOpened ? "免费开启" : profile.fossils >= CHEST_COST
-      ? `开启 · ${CHEST_COST} 枚化石` : `还差 ${CHEST_COST - profile.fossils} 枚化石`);
+    const single = chestPrice(profile, 1);
+    const ten = chestPrice(profile, 10);
+    nodes["chest-open"].disabled = chestBusy || profile.fossils < single;
+    nodes["chest-ten"].disabled = chestBusy || profile.fossils < ten;
+    text("chest-open", single ? `单开 · ${single}` : "免费开");
+    text("chest-ten", `十连 · ${ten}`);
+    drawReceipt(profile.chestReceipt);
+    renderBoosts(profile);
   }
 
-  function openFossilChest() {
-    let reward;
-    save.change(profile => { reward = openChest(profile); });
-    if (!reward) return;
-    const label = reward.item ? `${reward.item.name}碎片` : "万能碎片";
+  async function selectBoost(id) {
+    if (!Object.hasOwn(POWERUPS, id) || chestBusy) return;
+    await save.exclusive(() => save.change(profile => {
+      if (profile.boosts[id]) profile.boostSelected = profile.boostSelected === id ? "" : id;
+    }));
+    if (panel === "chest") renderChest();
+  }
+
+  async function openFossilChest(count) {
+    if (chestBusy) return;
+    chestBusy = true;
     const preview = nodes["chest-preview"];
-    preview.classList.remove("opened");
-    void preview.offsetWidth;
-    preview.classList.add("opened");
-    text("chest-reward", `获得 ${reward.count} 片${label}`);
-    text("chest-hint", save.available ? "" : "浏览器存储不可用，当前奖励可从存档导出。");
-    sound.play("power");
-    updateMenu();
     renderChest();
+    try {
+      let rewards;
+      await save.exclusive(() => save.change(profile => { rewards = openChests(profile, count); }));
+      if (!rewards) return;
+      shownReceipt = "";
+      preview.classList.remove("opened", "drawing");
+      void preview.offsetWidth;
+      preview.classList.add("drawing");
+      text("chest-reward", `抽取 ${rewards.length} 件奖励`);
+      text("chest-hint", save.available ? "" : "当前奖励可从存档导出。");
+      sound.play("power");
+      updateMenu();
+      renderChest();
+      if (!motionPreference.matches) {
+        await new Promise(resolve => {
+          drawFinish = resolve;
+          drawTimer = setTimeout(resolve, count === 10 ? 1610 : 620);
+        });
+      }
+    } finally {
+      clearTimeout(drawTimer);
+      drawFinish = null;
+      preview.classList.remove("drawing");
+      chestBusy = false;
+      if (panel === "chest") renderChest();
+    }
   }
 
   function renderSave() {
@@ -461,7 +557,7 @@ export function mount(root, { roomTransport = null } = {}) {
     text("save-total", `${profile.total} m`);
     text("save-fossils", `${profile.fossils} 枚`);
     text("save-checkpoint", profile.checkpoint ? `${Math.floor(profile.checkpoint.distance)} m` : "暂无");
-    text("save-description", save.available ? "成绩、化石和装扮会自动保存到当前浏览器。" : "浏览器存储不可用。可以导出本次会话的备份。");
+    text("save-description", save.available ? "成绩、金币和装扮会自动保存到当前浏览器。" : "浏览器存储不可用。可以导出本次会话的备份。");
   }
 
   function exportSave() {
@@ -529,7 +625,13 @@ export function mount(root, { roomTransport = null } = {}) {
     save.change(profile => { profile.nick = name; });
     text("online-hint", which === "create" ? "正在创建房间…" : "正在加入房间…");
     try {
-      await client.enter(which, { code: which === "join" ? code : undefined, name, skin: currentLook(), rules: RACE_RULES });
+      const options = { code: which === "join" ? code : undefined, name, skin: currentLook(), rules: RACE_RULES };
+      try {
+        await client.enter(which, options);
+      } catch (error) {
+        if (which !== "join" || error.status !== 409 || !error.message.includes("新版赛道")) throw error;
+        await client.enter(which, { ...options, rules: 2 });
+      }
       text("online-hint", "");
     } catch (error) {
       text("online-hint", error.status ? error.message : "连接超时。可以再试一次。");
@@ -656,7 +758,7 @@ export function mount(root, { roomTransport = null } = {}) {
     const state = readSession(RACE_SAVE);
     const cached = state?.key === key ? loadRun({ ...state.run, done: false }, "race") : null;
     const me = room.players.find(player => player.id === room.self);
-    const rules = room.rules === RACE_RULES ? RACE_RULES : 1;
+    const rules = normalizeRaceRules(room.rules);
     run = cached?.rules === rules ? cached : newRun(room.seed, "race", rules);
     if (me && me.distance > run.distance) {
       run.distance = me.distance;
@@ -750,7 +852,7 @@ export function mount(root, { roomTransport = null } = {}) {
     show("countdown", false);
     show("run-feedback", false);
     const place = sorted.findIndex(player => player.id === room.self);
-    text("results-summary", `第 ${place + 1} 名 · 本轮收集 ${run.fossils} 枚化石`);
+    text("results-summary", `第 ${place + 1} 名 · 本轮收集 ${run.fossils} 金币`);
     const signature = JSON.stringify(sorted.map(p => [p.id, p.finish, p.distance, p.name, p.skin]));
     if (signature !== resultSignature) {
       const rows = sorted.map((player, index) => playerRow(player,
@@ -775,7 +877,7 @@ export function mount(root, { roomTransport = null } = {}) {
 
   function action(which) {
     sound.unlock();
-    if (leaving || entering && which !== "sound") return;
+    if (leaving || (entering || launching) && which !== "sound") return;
     switch (which) {
       case "home":
         if (mode === "race") {
@@ -829,7 +931,8 @@ export function mount(root, { roomTransport = null } = {}) {
         openPanel(which);
         break;
       case "equip": equip(); break;
-      case "open-chest": openFossilChest(); break;
+      case "open-chest": void openFossilChest(1); break;
+      case "open-ten": void openFossilChest(10); break;
       case "export-save": exportSave(); break;
       case "import-save": nodes["import-file"].click(); break;
       case "replace-save":
@@ -853,21 +956,17 @@ export function mount(root, { roomTransport = null } = {}) {
     }
   }
 
-  function runEvent(event, detail) {
+  function runEvent(event) {
     sound.play(event);
-    if (event === "fossil") {
-      for (let i = 0; i < 7; i++) {
+    if (event === "fossil" || event === "chain" || event === "ride") {
+      for (let i = 0; i < (event === "chain" ? 18 : 7); i++) {
         particles.push({
           x: run.x, y: run.y + 0.8, z: -0.21,
           vx: (Math.random() - 0.5) * 4, vy: 1 + Math.random() * 2,
-          life: 0.34 + Math.random() * 0.28, size: 0.09 + Math.random() * 0.045, color: i % 2 ? "#73786a" : "#f1f2e6",
+          life: 0.34 + Math.random() * 0.28, size: 0.09 + Math.random() * 0.045, color: i % 2 ? "#bcab77" : "#ece4bc",
         });
       }
     }
-    if (event === "power") feedback(`${POWERUPS[detail].name} · ${POWERUPS[detail].effect}`, 1400);
-    if (event === "shield") feedback("甲壳盾抵挡了一次撞击");
-    if (event === "boss-clear") feedback(`击败${detail.name} · 获得 ${detail.prize} 枚化石`, 1800);
-    if (event === "hit" && mode === "race") feedback(detail === "meteor" ? "被陨石击中 · 减速" : "撞到障碍 · 减速");
   }
 
   function applyInput(move) {
@@ -876,39 +975,21 @@ export function mount(root, { roomTransport = null } = {}) {
     sound.unlock();
     const moved = control(run, move, runEvent);
     if (moved && move === "jump") sound.play("jump");
-    if (!moved && move === "strike" && run.boss?.phase === "exposed") feedback(`到${LANE_NAMES[run.boss.weakLane]}后反击`);
   }
 
   function buildGuide() {
-    for (const power of Object.values(POWERUPS)) {
-      const li = document.createElement("li");
-      const icon = document.createElement("span");
-      const copy = document.createElement("div");
-      const name = document.createElement("strong");
-      const effect = document.createElement("small");
-      icon.className = "power-symbol";
-      icon.textContent = power.symbol;
-      icon.setAttribute("aria-hidden", "true");
-      name.textContent = power.name;
-      effect.textContent = `${power.effect} · ${power.duration} 秒`;
-      copy.append(name, effect);
-      li.append(icon, copy);
-      nodes["guide-powers"].append(li);
-    }
     for (const [index, boss] of BOSSES.entries()) {
       const li = document.createElement("li");
       const copy = document.createElement("div");
       const title = document.createElement("strong");
-      const details = document.createElement("small");
       const button = document.createElement("button");
       title.textContent = boss.name;
-      details.textContent = `${boss.distance} m · ${boss.hint}`;
       button.type = "button";
       button.className = "button compact";
       button.dataset.practice = String(index);
       button.textContent = "练习";
       button.setAttribute("aria-label", `练习挑战${boss.name}`);
-      copy.append(title, details);
+      copy.append(title);
       li.append(stamp(boss.skin), copy, button);
       nodes["guide-bosses"].append(li);
     }
@@ -929,7 +1010,7 @@ export function mount(root, { roomTransport = null } = {}) {
     }
   }
 
-  function updateChallengeHud(distance) {
+  function updateChallengeHud() {
     const hasPower = Object.keys(run.powers).length > 0;
     if (hasPower || !nodes["active-powers"].hidden) {
       for (const [id, { chip, timer }] of powerChips) {
@@ -950,18 +1031,8 @@ export function mount(root, { roomTransport = null } = {}) {
       if (label === bossHudKey) return;
       bossHudKey = label;
       const boss = BOSSES[state.index];
-      const incident = bossAttack(state);
-      const instructions = {
-        intro: "先看首领的攻击车道",
-        warning: `${incident.name} · 避开${state.lanes.map(lane => LANE_NAMES[lane]).join("、")}`,
-        impact: `${incident.name}！`,
-        exposed: `破绽 · 到${LANE_NAMES[state.weakLane]}反击`,
-        stagger: "反击命中",
-        victory: "首领已击败",
-      };
       text("boss-name", boss.name);
       text("boss-count", `${state.hp} / ${boss.hp}`);
-      text("boss-prompt", instructions[state.phase]);
       nodes["boss-hud"].dataset.phase = state.phase;
       nodes["strike-button"].disabled = state.phase !== "exposed";
       nodes["boss-health"].replaceChildren(...Array.from({ length: boss.hp }, (_, i) => {
@@ -969,23 +1040,26 @@ export function mount(root, { roomTransport = null } = {}) {
         if (i < state.hp) segment.className = "active";
         return segment;
       }));
-      show("meteor-warning", false);
-      return;
+    } else {
+      bossHudKey = "";
     }
-    if (distance === score.distance && !bossHudKey) return;
-    bossHudKey = "";
-    const meteor = groupsNear(run.seed, run.distance, 33, 0, run.mode, run.rules).flatMap(group => group.obstacles)
-      .filter(mark => mark.kind === "meteor" && mark.d > run.distance && mark.d - run.distance <= 30)
-      .sort((a, b) => a.d - b.d)[0];
-    if (meteor) text("meteor-warning", `陨石落点 · ${LANE_NAMES[meteor.lane]}`);
-    show("meteor-warning", !!meteor);
+    const biome = run.rules >= 3 ? biomeAt(run.seed, run.distance) : BIOMES[0];
+    if (currentBiome === biome.id) return;
+    currentBiome = biome.id;
+    gameCanvas.parentElement.dataset.biome = biome.id;
+    clearTimeout(biomeTimer);
+    if (!run.practice) {
+      text("biome-title", biome.name);
+      show("biome-title", true);
+      biomeTimer = setTimeout(() => show("biome-title", false), 1420);
+    }
   }
 
   function updateHud() {
     const distance = Math.floor(run.distance);
     if (distance !== score.distance) text("run-distance", digits(distance, 4));
     if (run.fossils !== score.fossils) text("run-fossils", digits(run.fossils));
-    updateChallengeHud(distance);
+    updateChallengeHud();
     score = { distance, fossils: run.fossils };
   }
 
@@ -1003,7 +1077,7 @@ export function mount(root, { roomTransport = null } = {}) {
         const n = Math.ceil((startAt - timerClock) / 1000);
         if (n !== countdownNumber) {
           countdownNumber = n;
-          text("count-message", mode === "race" ? "竞速即将开始" : run.practice ? "准备挑战" : "准备开跑");
+          text("count-message", "");
           text("count-number", n);
           show("countdown", true);
           if (!paused) sound.play("tick");
@@ -1069,6 +1143,8 @@ export function mount(root, { roomTransport = null } = {}) {
   }
 
   on(root, "click", event => {
+    const boost = event.target.closest("[data-boost]");
+    if (boost) { void selectBoost(boost.dataset.boost); return; }
     const slot = event.target.closest("[data-wardrobe-slot]");
     if (slot) { setWardrobeSlot(slot.dataset.wardrobeSlot); return; }
     const outfit = event.target.closest("[data-outfit]");
@@ -1190,6 +1266,8 @@ export function mount(root, { roomTransport = null } = {}) {
     closet?.dispose();
     clearTimeout(toastTimer);
     clearTimeout(feedbackTimer);
+    clearTimeout(biomeTimer);
+    drawFinish?.();
     cancelAnimationFrame(raf);
   };
 }

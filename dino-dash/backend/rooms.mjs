@@ -1,4 +1,4 @@
-import { RACE_LIMIT_MS, RACE_METRES, RACE_RULES, clamp, randomSeed } from "../game/runner.js";
+import { RACE_LIMIT_MS, RACE_METRES, normalizeRaceRules, clamp, randomSeed } from "../game/runner.js";
 import { normalizeLook } from "../game/catalog.js";
 
 const CODE_CHARS = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
@@ -170,7 +170,7 @@ export async function roomAction(db, body, now = Date.now()) {
     return fail(400, "无效的玩家会话。");
   }
   const secret = await secretOf(body.token);
-  const rules = body.rules === RACE_RULES ? RACE_RULES : 1;
+  const rules = normalizeRaceRules(body.rules);
   if (body.action === "create") return create(db, secret, playerInfo(body), now, rules);
   const code = typeof body.code === "string" ? body.code.trim().toUpperCase() : "";
   if (!CODE_FORMAT.test(code)) return fail(400, "请输入 6 位有效房间码。");
