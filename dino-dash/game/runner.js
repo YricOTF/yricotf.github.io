@@ -1,21 +1,24 @@
-import { courseGroup, flightPose, hash, isFlyer, rideHeight, rideLength } from "./course.js?v=3";
-import { advanceBoss, beginBoss, BOSSES, LANES, POWERUPS, restoreBoss, strikeBoss } from "./challenge.js?v=3";
+import { courseGroup, FIRST_GROUP, flightPose, GROUP_SPACING, hash, isFlyer, rideHeight, rideLength, trackDistance } from "./course.js?v=4";
+import { advanceBoss, beginBoss, BOSSES, LANES, POWERUPS, restoreBoss, strikeBoss } from "./challenge.js?v=4";
 
 export { LANES, hash };
-export { SKINS } from "./catalog.js?v=3";
+export { SKINS } from "./catalog.js?v=4";
 export const RACE_METRES = 650;
 export const RACE_LIMIT_MS = 65_000;
-export const RACE_RULES = 3;
+export const RACE_RULES = 4;
 
-const GROUP_SPACING = 23;
-const FIRST_GROUP = 25;
 const JUMP_TIME = 0.84;
 const HIGH_JUMP_TIME = 1.02;
 const SLIDE_TIME = 0.86;
 const MAX_SOLO_SPEED = 34;
 const BASE_SPEED = 15;
 const RACE_SPEED = 18;
-const BOSS_BUFFER_M = 16;
+export const ARENA_LEAD = 54;
+export const ARENA_EXIT = 44;
+export const ARENA_BOSS_DEPTH = 28.7;
+const bossSites = BOSSES.map(boss => boss.distance);
+const legacyBossSites = [150, 375, 665];
+export const arenaSites = legacy => legacy ? legacyBossSites : bossSites;
 const POWER_IDS = Object.keys(POWERUPS);
 const obstacleKinds = ["cactus", "boulder", "flyer", "ridge"];
 
@@ -24,16 +27,17 @@ export const clamp = (n, min, max) => Math.min(max, Math.max(min, n));
 export const randomSeed = () => crypto.getRandomValues(new Uint32Array(1))[0] || 1;
 
 export function normalizeRaceRules(value) {
-  return value === RACE_RULES || value === 2 ? value : 1;
+  return Number.isInteger(value) && value >= 1 && value <= RACE_RULES ? value : 1;
 }
 
-export function trackGroup(seed, index, mode = "solo", rules = RACE_RULES) {
+export function trackGroup(seed, index, mode = "solo", rules = RACE_RULES, legacyBossRoute = rules < 4) {
   const roll = n => hash(seed, index * 11 + n);
-  const dist = FIRST_GROUP + index * GROUP_SPACING + (index ? roll(0) * 3 : 0);
-  if (mode === "solo" && BOSSES.some(boss => Math.abs(dist - boss.distance) <= BOSS_BUFFER_M)) {
+  const dist = trackDistance(seed, index);
+  if (mode === "solo" && arenaSites(legacyBossRoute).some(site => rules < 4 ? Math.abs(dist - site) <= 16
+    : dist + 13 >= site - ARENA_LEAD && dist - 8 <= site + ARENA_EXIT)) {
     return { obstacles: [], fossils: [], powers: [] };
   }
-  if (rules >= 3) return courseGroup(seed, index, mode, dist, roll, POWER_IDS);
+  if (rules >= 3) return courseGroup(seed, index, mode, dist, roll, POWER_IDS, rules);
   const safe = index === 0 ? (roll(2) < 0.5 ? 0 : 2) : Math.floor(roll(1) * 3);
   const other = [0, 1, 2].filter(lane => lane !== safe);
   const first = index === 0 ? 1 : other[Math.floor(roll(2) * 2)];
@@ -57,10 +61,10 @@ export function trackGroup(seed, index, mode = "solo", rules = RACE_RULES) {
   return { obstacles, fossils, powers };
 }
 
-export function groupsNear(seed, distance, ahead = 110, behind = 14, mode = "solo", rules = RACE_RULES) {
+export function groupsNear(seed, distance, ahead = 110, behind = 14, mode = "solo", rules = RACE_RULES, legacyBossRoute = rules < 4) {
   const start = Math.max(0, Math.floor((distance - behind - FIRST_GROUP) / GROUP_SPACING));
   const end = Math.ceil((distance + ahead - FIRST_GROUP) / GROUP_SPACING);
-  return Array.from({ length: Math.max(0, end - start + 1) }, (_, n) => trackGroup(seed, start + n, mode, rules));
+  return Array.from({ length: Math.max(0, end - start + 1) }, (_, n) => trackGroup(seed, start + n, mode, rules, legacyBossRoute));
 }
 
 export function newRun(seed = randomSeed(), mode = "solo", rules = RACE_RULES) {
@@ -106,13 +110,15 @@ export function loadRun(snapshot, mode = "solo") {
   const ride = snapshot.ride;
   if (run.rules >= 3 && ride && ["vine", "minecart"].includes(ride.kind) && [0, 1, 2].includes(ride.lane)
     && Number.isFinite(ride.d) && run.distance >= ride.d - 0.8 && run.distance < ride.d + rideLength(ride.kind)) {
-    run.ride = { kind: ride.kind, lane: ride.lane, d: ride.d };
+    run.ride = { kind: ride.kind, lane: ride.lane, d: ride.d, side: ride.side === -1 ? -1 : 1 };
   }
   if (mode === "solo") {
+    run.legacyBossRoute = snapshot.legacyBossRoute === true || snapshot.rules < 4 || snapshot.rules === undefined;
     if (snapshot.rules !== RACE_RULES) run.grace = Math.max(run.grace, 0.8);
-    const passed = BOSSES.filter(boss => boss.distance < snapshot.distance - 0.01).length;
+    const sites = arenaSites(run.legacyBossRoute);
+    const passed = sites.filter(site => site < snapshot.distance - 0.01).length;
     run.nextBoss = Number.isInteger(snapshot.nextBoss) ? clamp(snapshot.nextBoss, passed, BOSSES.length) : passed;
-    run.boss = restoreBoss(snapshot.boss, run.distance);
+    run.boss = restoreBoss(snapshot.boss, run.distance, sites[snapshot.boss?.index]);
     if (run.boss) {
       run.nextBoss = run.boss.index;
       if (snapshot.rules !== RACE_RULES && ["warning", "impact"].includes(run.boss.phase)) {
@@ -194,8 +200,9 @@ function pickups(run, group, previous, notify) {
 }
 
 function cleared(run, obstacle) {
-  if (obstacle.kind === "meteor") return false;
-  if (["flyer", "branch", "stalactite"].includes(obstacle.kind)) return run.slide > 0;
+  if (["meteor", "thorn", "idol", "pillar"].includes(obstacle.kind)) return false;
+  if (["flyer", "branch", "stalactite", "beam", "pod"].includes(obstacle.kind)) return run.slide > 0;
+  if (["mud", "washout"].includes(obstacle.kind)) return run.y > 0.88;
   if (obstacle.kind === "cart") return run.y > 1.48;
   if (obstacle.kind === "vine") return run.y > 0.93;
   return run.y > (obstacle.kind === "cactus" ? 1.6 : obstacle.kind === "ridge" ? 0.99 : 1.16);
@@ -240,16 +247,16 @@ export function stepRun(run, dt, notify = () => {}) {
       run.y = rideHeight(kind, progress);
     }
   }
-  const upcoming = run.mode === "solo" ? BOSSES[run.nextBoss] : null;
-  if (upcoming && run.distance >= upcoming.distance) {
-    run.distance = upcoming.distance;
+  const site = run.mode === "solo" ? arenaSites(run.legacyBossRoute)[run.nextBoss] : undefined;
+  if (site !== undefined && run.distance >= site) {
+    run.distance = site;
     run.ride = null;
     run.boss = beginBoss(run.nextBoss);
-    notify("boss-enter", upcoming);
+    notify("boss-enter", BOSSES[run.nextBoss]);
     return;
   }
 
-  const groups = groupsNear(run.seed, run.distance, 7, 14, run.mode, run.rules);
+  const groups = groupsNear(run.seed, run.distance, 7, 14, run.mode, run.rules, run.legacyBossRoute);
   for (const group of groups) {
     pickups(run, group, previous, notify);
     for (const obstacle of group.obstacles) {
@@ -265,14 +272,15 @@ export function stepRun(run, dt, notify = () => {}) {
           run.lane = obstacle.lane;
           run.jump = 0;
           run.slide = 0;
-          run.ride = { kind: obstacle.kind, lane: obstacle.lane, d: obstacle.d };
+          run.ride = { kind: obstacle.kind, lane: obstacle.lane, d: obstacle.d, side: Math.sign(LANES[obstacle.lane]) || obstacle.side };
           run.hit[obstacle.id] = obstacle.d;
           notify("ride");
           continue;
         }
         if (z < 0 || cleared(run, obstacle)) continue;
       } else {
-        if (z < -0.72 || z > 0.68 || Math.abs(run.x - LANES[obstacle.lane]) > (obstacle.kind === "meteor" ? 1.18 : 0.89)
+        const gap = obstacle.kind === "mud" || obstacle.kind === "washout";
+        if (z < (gap ? -1.5 : -0.72) || z > (gap ? 1.35 : 0.68) || Math.abs(run.x - LANES[obstacle.lane]) > (obstacle.kind === "meteor" ? 1.18 : 0.89)
           || cleared(run, obstacle)) continue;
       }
       run.hit[obstacle.id] = obstacle.d;

@@ -1,9 +1,9 @@
-import { biomeAt, BIOMES } from "./course.js?v=3";
-import { control, normalizeRaceRules, loadRun, newPractice, newRun, RACE_METRES, RACE_RULES, stepRun, tune } from "./runner.js?v=3";
-import { ACCESSORIES, chestPrice, fragmentBalance, openChests, owns, packLook, SKINS, unlock, unpackLook, WARDROBE } from "./catalog.js?v=3";
-import { BOSSES, POWERUPS } from "./challenge.js?v=3";
-import { Scene } from "./scene.js?v=3";
-import { normalizeSave, readSession, Save, writeSession } from "./storage.js?v=3";
+import { biomeAt, BIOMES } from "./course.js?v=4";
+import { control, normalizeRaceRules, loadRun, newPractice, newRun, RACE_METRES, RACE_RULES, stepRun, tune } from "./runner.js?v=4";
+import { ACCESSORIES, chestPrice, fragmentBalance, openChests, owns, packLook, SKINS, unlock, unpackLook, WARDROBE } from "./catalog.js?v=4";
+import { BOSSES, POWERUPS } from "./challenge.js?v=4";
+import { Scene } from "./scene.js?v=4";
+import { normalizeSave, readSession, Save, writeSession } from "./storage.js?v=4";
 import { RoomClient } from "./network.js";
 
 const RACE_SAVE = "dino-dash.race.v1";
@@ -630,7 +630,12 @@ export function mount(root, { roomTransport = null } = {}) {
         await client.enter(which, options);
       } catch (error) {
         if (which !== "join" || error.status !== 409 || !error.message.includes("新版赛道")) throw error;
-        await client.enter(which, { ...options, rules: 2 });
+        try {
+          await client.enter(which, { ...options, rules: 3 });
+        } catch (legacyError) {
+          if (legacyError.status !== 409 || !legacyError.message.includes("新版赛道")) throw legacyError;
+          await client.enter(which, { ...options, rules: 2 });
+        }
       }
       text("online-hint", "");
     } catch (error) {
@@ -1043,7 +1048,7 @@ export function mount(root, { roomTransport = null } = {}) {
     } else {
       bossHudKey = "";
     }
-    const biome = run.rules >= 3 ? biomeAt(run.seed, run.distance) : BIOMES[0];
+    const biome = run.rules >= 3 ? biomeAt(run.seed, run.distance, run.rules, run.mode) : BIOMES[0];
     if (currentBiome === biome.id) return;
     currentBiome = biome.id;
     gameCanvas.parentElement.dataset.biome = biome.id;

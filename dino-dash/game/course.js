@@ -1,4 +1,8 @@
-export const BIOME_LENGTH = 230;
+export const BIOME_LENGTH = 400;
+const SHORT_BIOME_LENGTH = 230;
+export const GROUP_SPACING = 23;
+export const FIRST_GROUP = 25;
+export const biomeLength = (rules = 4, mode = "solo") => rules < 4 || mode === "race" ? SHORT_BIOME_LENGTH : BIOME_LENGTH;
 export const BIOMES = [
   { id: "wild", name: "荒野", obstacles: ["cactus", "boulder", "straight", "ridge", "orbit"],
     ground: "#d7d8cf", road: "#d0d2c7", shoulder: "#b9bcae", line: "#a1a695", fog: [0.94, 0.94, 0.92] },
@@ -15,9 +19,11 @@ export function hash(seed, index) {
   return ((value ^ (value >>> 16)) >>> 0) / 4294967296;
 }
 
+export const trackDistance = (seed, index) => FIRST_GROUP + index * GROUP_SPACING + (index ? hash(seed, index * 11) * 3 : 0);
+
 const maps = new Map();
-export function biomeAt(seed, distance) {
-  const section = Math.max(0, Math.floor(distance / BIOME_LENGTH));
+export function biomeAt(seed, distance, rules, mode) {
+  const section = Math.max(0, Math.floor(distance / biomeLength(rules, mode)));
   if (section < 3) return BIOMES[section];
   let order = maps.get(seed);
   if (!order) {
@@ -64,32 +70,49 @@ export function rideHeight(kind, position) {
   return kind === "vine" ? 1.18 + Math.sin(Math.PI * progress) * 1.5 : 0.73 + Math.sin(Math.PI * progress) * 0.12;
 }
 
-export function courseGroup(seed, index, mode, distance, roll, powerIds) {
-  const biome = biomeAt(seed, distance);
-  const zone = Math.floor(distance / BIOME_LENGTH);
-  const local = distance - zone * BIOME_LENGTH;
+const terrainObstacles = {
+  jungle: ["log", "branch", "root", "thorn", "mud", "idol", "pod", "orbit", "dive"],
+  cave: ["ore", "stalactite", "beam", "washout", "pillar", "boulder", "dive"],
+};
+const hopObstacles = ["boulder", "ridge", "log", "root", "ore"];
+
+export function courseGroup(seed, index, mode, distance, roll, powerIds, rules) {
+  const biome = biomeAt(seed, distance, rules, mode);
+  const length = biomeLength(rules, mode);
+  const zone = Math.floor(distance / length);
+  const start = zone * length;
+  const local = distance - start;
+  const terrain = rules >= 4 && terrainObstacles[biome.id];
+  const pool = terrain || biome.obstacles;
   const safe = index < 2 ? (roll(2) < 0.5 ? 0 : 2) : Math.floor(roll(1) * 3);
   const order = [0, 1, 2].filter(lane => lane !== safe);
   if (roll(2) >= 0.5) order.reverse();
   const first = index === 0 ? 1 : order[0];
   const second = order.find(lane => lane !== first);
   let kind = index < 2 ? (roll(3) < 0.5 ? "cactus" : "boulder")
-    : biome.obstacles[Math.floor(roll(3) * biome.obstacles.length)];
+    : pool[Math.floor(roll(3) * pool.length)];
   if (biome.id === "wild") {
     if (index === 2) kind = "straight";
     if (index === 3) kind = "orbit";
     if (index === 4 || index > 5 && roll(10) > 0.88) kind = "meteor";
   }
-  if (biome.id === "jungle" && (local < 30 || index % 4 === 1)) kind = "vine";
-  if (biome.id === "cave" && (local < 30 || index % 4 === 2)) kind = "minecart";
+  if (terrain) {
+    const rideIndex = Math.ceil((start + 86 - FIRST_GROUP) / GROUP_SPACING) + Math.floor(hash(seed ^ 0x4bc10, zone) * 2);
+    if (index === rideIndex) kind = biome.id === "jungle" ? "vine" : "minecart";
+    if (biome.id === "cave" && index === rideIndex + 3 && hash(seed ^ 0x76acf, zone) > 0.55) kind = "cart";
+  } else if (rules === 3) {
+    if (biome.id === "jungle" && (local < 30 || index % 4 === 1)) kind = "vine";
+    if (biome.id === "cave" && (local < 30 || index % 4 === 2)) kind = "minecart";
+  }
   const special = kind === "vine" || kind === "minecart";
   const obstacles = [{ id: `${index}a`, kind, d: distance, lane: first, turn: roll(8) * Math.PI * 2, side: roll(6) < 0.5 ? -1 : 1 }];
-  if (index > 2 && !special && !isFlyer(kind) && roll(4) < (kind === "meteor" ? 0.48 : 0.70)) {
-    const fixed = biome.obstacles.filter(type => !isFlyer(type) && type !== "cart");
+  const doubleChance = kind === "meteor" ? 0.48 : terrain ? (local < 25 ? 0.28 : 0.85) : 0.70;
+  if (index > 2 && !special && !isFlyer(kind) && roll(4) < doubleChance) {
+    const fixed = pool.filter(type => !isFlyer(type) && type !== "cart" && (!terrain || type !== kind));
     obstacles.push({ id: `${index}b`, kind: fixed[Math.floor(roll(5) * fixed.length)], d: distance + (roll(6) - 0.5) * 2.1, lane: second });
   }
 
-  const hop = !special && ["boulder", "ridge", "log", "root", "ore"].includes(kind) && (index % 3 === 1 || roll(7) < 0.36);
+  const hop = hopObstacles.includes(kind) && (index % 3 === 1 || roll(7) < 0.36);
   const curved = !special && !hop && index > 1;
   const lane = special || hop ? first : safe;
   const coins = special ? 7 : 6;

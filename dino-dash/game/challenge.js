@@ -15,8 +15,8 @@ const rain = { kind: "meteor", count: 2, windup: 1.28 };
 
 export const BOSSES = [
   { name: "裂岩角龙", distance: 150, hp: 3, skin: "horn", prize: 10, opening: 1.85, attacks: [[lunge], [heavy], [lunge, lunge]] },
-  { name: "疾影迅猛龙", distance: 375, hp: 4, skin: "raptor", prize: 16, opening: 1.48, attacks: [[drag], [lunge, cut], [cut], [heavy, cut]] },
-  { name: "陨脊暴龙", distance: 665, hp: 5, skin: "shadow", prize: 24, opening: 1.23, attacks: [[rain], [cut, lunge], [heavy, rain], [rain, cut]] },
+  { name: "疾影迅猛龙", distance: 620, hp: 4, skin: "raptor", prize: 16, opening: 1.48, attacks: [[drag], [lunge, cut], [cut], [heavy, cut]] },
+  { name: "陨脊暴龙", distance: 1020, hp: 5, skin: "shadow", prize: 24, opening: 1.23, attacks: [[rain], [cut, lunge], [heavy, rain], [rain, cut]] },
 ];
 
 const BOSS_PHASES = ["intro", "warning", "impact", "exposed", "stagger", "victory"];
@@ -31,9 +31,9 @@ export function beginBoss(index) {
   return { index, hp: BOSSES[index].hp, phase: "intro", age: 0, cycle: 0, beat: 0, retargeted: false, lanes: [], weakLane: 1, travel: 0, strikeLane: 1 };
 }
 
-export function restoreBoss(raw, distance) {
+export function restoreBoss(raw, distance, site) {
   const spec = BOSSES[raw?.index];
-  if (!spec || Math.abs(distance - spec.distance) > 0.01 || !BOSS_PHASES.includes(raw.phase)
+  if (!spec || !Number.isFinite(site) || Math.abs(distance - site) > 0.01 || !BOSS_PHASES.includes(raw.phase)
     || !Number.isFinite(raw.age) || raw.age < 0 || raw.age > PHASE_MAX[raw.phase] + 0.1
     || !Number.isInteger(raw.hp) || raw.hp < (raw.phase === "victory" ? 0 : 1) || raw.hp > spec.hp
     || !Number.isSafeInteger(raw.cycle) || raw.cycle < 0 || ![0, 1, 2].includes(raw.weakLane)

@@ -605,8 +605,11 @@ kbd.space-key { min-width: 30px; font-size: 0.72rem; }
   .play-stage:has(.strike-controls:not([hidden])) .run-feedback { bottom: max(75px, calc(env(safe-area-inset-bottom) + 62px)); }
 }
 
-.play-stage[data-biome="jungle"] .play-sky { background: linear-gradient(#d1dacf, #c0cec1 58%, #839681); }
-.play-stage[data-biome="cave"] .play-sky { background: linear-gradient(#414b49, #63706d 62%, #747f77); }
+.play-sky::before, .play-sky::after { content: ""; position: absolute; inset: 0; opacity: 0; transition: opacity 650ms ease; }
+.play-sky::before { background: linear-gradient(#d1dacf, #c0cec1 58%, #839681); }
+.play-sky::after { background: linear-gradient(#414b49, #63706d 62%, #747f77); }
+.play-stage[data-biome="jungle"] .play-sky::before,
+.play-stage[data-biome="cave"] .play-sky::after { opacity: 1; }
 .biome-title {
   position: absolute; z-index: 2; left: 50%; top: 25%; transform: translateX(-50%);
   background: #f1f3eb; color: #29312a; border: 1px solid #a7afa1; padding: 5px 14px;

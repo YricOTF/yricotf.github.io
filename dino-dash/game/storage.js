@@ -1,6 +1,6 @@
-import { POWERUPS } from "./challenge.js?v=3";
-import { loadRun } from "./runner.js?v=3";
-import { ACCESSORIES, restoreRewards, SKINS, WARDROBE, unpackLook } from "./catalog.js?v=3";
+import { POWERUPS } from "./challenge.js?v=4";
+import { loadRun } from "./runner.js?v=4";
+import { ACCESSORIES, restoreRewards, SKINS, WARDROBE, unpackLook } from "./catalog.js?v=4";
 
 const KEY = "dino-dash.save.v1";
 
