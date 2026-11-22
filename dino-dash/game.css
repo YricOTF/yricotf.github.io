@@ -689,3 +689,10 @@ kbd.space-key { min-width: 30px; font-size: 0.72rem; }
   .shop-items li > .reward-icon { width: 21px; height: 21px; }
   .shop-items .button { padding-inline: 5px; }
 }
+
+.rank-table { width: 100%; border-collapse: collapse; margin-block: 10px 18px; font-variant-numeric: tabular-nums; }
+.rank-table th, .rank-table td { text-align: right; padding: 6px 4px; border-bottom: 1px solid #c4cabc; }
+.rank-table th:nth-child(2), .rank-table td:nth-child(2) { text-align: left; overflow-wrap: anywhere; }
+.rank-table td:not(:nth-child(2)) { white-space: nowrap; }
+.rank-name { display: grid; grid-template-columns: auto minmax(0,1fr); align-items: center; gap: 9px; }
+.rank-name input { width: 100%; min-height: 39px; padding: 5px 8px; border: 1px solid #9ca598; background: #fbfbf4; color: #222920; }

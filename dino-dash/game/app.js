@@ -6,6 +6,9 @@ import { Scene } from "./scene.js?v=6";
 import { normalizeSave, readSession, Save, writeSession } from "./storage.js?v=6";
 import { RoomClient } from "./network.js";
 import { Sound } from "./audio.js?v=6";
+import { Cloud } from "./cloud.js?v=7";
+import { HumanCheck } from "./human-check.js?v=7";
+import { MAX_MOVES, MOVES_PER_TICK, PROOF_INTERVAL, RANK_MOVES, RANK_STEP, RANK_TICKS } from "./replay.js?v=7";
 
 const RACE_SAVE = "dino-dash.race.v1";
 const CODE_FORMAT = /^[2-9A-HJ-NP-Z]{6}$/;
@@ -34,6 +37,7 @@ export function mount(root, { roomTransport = null } = {}) {
   const dialog = nodes.panel;
   const save = new Save();
   const sound = new Sound();
+  const cloud = new Cloud();
   const heroCanvas = nodes["hero-canvas"];
   const gameCanvas = nodes["play-canvas"];
   const closetCanvas = nodes["closet-canvas"];
@@ -43,6 +47,10 @@ export function mount(root, { roomTransport = null } = {}) {
   let panel = "";
   let mode = "menu";
   let run = null;
+  let ranked = null;
+  let rankRequest = 0;
+  let cloudTimer;
+  let captchaToken = "";
   let race = null;
   let selected = save.current.skin;
   let wardrobeSlot = "skin";
@@ -83,6 +91,11 @@ export function mount(root, { roomTransport = null } = {}) {
   const text = (id, value) => { if (nodes[id].textContent !== String(value)) nodes[id].textContent = value; };
   const setHidden = (node, hidden) => { if (node.hidden !== hidden) node.hidden = hidden; };
   const show = (id, yes) => setHidden(nodes[id], !yes);
+  const humanCheck = new HumanCheck(nodes["rank-captcha"], (token, message) => {
+    captchaToken = token;
+    nodes["rank-join"].disabled = !token;
+    text("rank-captcha-status", message);
+  });
 
   const client = new RoomClient(onRoom, onLink, getSample, roomTransport);
 
@@ -110,6 +123,7 @@ export function mount(root, { roomTransport = null } = {}) {
     for (const btn of buttons("continue")) if (btn.classList.contains("continue")) setHidden(btn, !profile.checkpoint);
     if (profile.checkpoint) text("continue-distance", `· ${Math.floor(profile.checkpoint.distance)} m`);
     sound.configure(profile.audio);
+    queueCloudSnapshot();
   }
 
   function openPanel(name) {
@@ -130,9 +144,119 @@ export function mount(root, { roomTransport = null } = {}) {
     if (name === "chest") renderChest();
     if (name === "shop") renderShop();
     if (name === "settings") renderAudioSettings();
+    if (name === "rank") void refreshBoard();
+  }
+
+  function queueCloudSnapshot(delay = 2700) {
+    if (!cloud.joined || cloudTimer) return;
+    cloudTimer = setTimeout(async () => {
+      const profile = save.current;
+      let throttled = false;
+      try { throttled = await cloud.snapshot(profile) === false; } catch { /* A later save or reconnect can retry. */ }
+      cloudTimer = null;
+      if (throttled || profile !== save.current) queueCloudSnapshot();
+    }, delay);
+  }
+
+  function rankControls() {
+    show("rank-controls", cloud.enabled);
+    show("rank-join", cloud.enabled && !cloud.joined);
+    show("rank-start", cloud.joined);
+    show("rank-refresh", cloud.enabled);
+    const verify = cloud.enabled && !cloud.joined && panel === "rank";
+    show("rank-human-check", verify);
+    if (verify && !captchaToken) nodes["rank-join"].disabled = true;
+    if (verify && cloud.captchaSiteKey) void humanCheck.show(cloud.captchaSiteKey);
+    else {
+      humanCheck.hide();
+      if (verify) text("rank-captcha-status", "真人验证尚未开通。");
+    }
+  }
+
+  async function refreshBoard() {
+    const request = ++rankRequest;
+    rankControls();
+    if (!cloud.enabled) {
+      text("rank-status", "排行榜待开通。仍可正常游玩单人和联机。");
+      return;
+    }
+    nodes["rank-name"].value ||= save.current.nick;
+    text("rank-status", "正在读取云端成绩…");
+    try {
+      const rows = await cloud.board();
+      if (request !== rankRequest || panel !== "rank") return;
+      nodes["rank-rows"].replaceChildren(...rows.map(row => {
+        const line = document.createElement("tr");
+        for (const value of [row.place, row.nick, row.score, `${row.distance} m`]) {
+          const cell = document.createElement("td");
+          cell.textContent = value;
+          line.append(cell);
+        }
+        return line;
+      }));
+      show("rank-table", rows.length > 0);
+      text("rank-status", rows.length ? "已刷新" : "还没有通过校验的排位成绩。");
+    } catch (error) {
+      if (request === rankRequest && panel === "rank") text("rank-status", error.status ? error.message : "无法连接排行榜，请重试。");
+    }
+  }
+
+  async function joinRank() {
+    const button = nodes["rank-join"];
+    if (button.disabled) return;
+    button.disabled = true;
+    text("rank-status", "正在创建本设备的玩家身份…");
+    try {
+      await cloud.join(captchaToken);
+      queueCloudSnapshot();
+      if (panel === "rank") await refreshBoard();
+    } catch (error) {
+      if (panel === "rank") text("rank-status", error.status === 400 ? "真人验证或登录失败，请重试。" : error.status ? error.message : "连接失败，请重试。");
+    } finally {
+      humanCheck.reset();
+    }
+  }
+
+  async function launchRanked() {
+    if (mode === "race" || client.session || launching || !cloud.joined) return;
+    launching = true;
+    nodes["rank-start"].disabled = true;
+    text("rank-status", "正在领取排位赛道…");
+    try {
+      await cloud.flush();
+      const ticket = await cloud.start();
+      const nick = Array.from(nodes["rank-name"].value.trim()).slice(0, 16).join("");
+      beginSolo(newRun(ticket.seed), 2020, { id: ticket.id, nick, ticks: 0, moves: [], carry: 0, lastInput: -1, sameTick: 0,
+        nextProof: PROOF_INTERVAL, proofPending: false });
+    } catch (error) {
+      if (panel !== "rank") openPanel("rank");
+      rankControls();
+      text("rank-status", error.status ? error.message : "暂时无法领取赛道，请重试。");
+    } finally {
+      launching = false;
+      nodes["rank-start"].disabled = false;
+    }
+  }
+
+  function advanceRanked(dt) {
+    ranked.carry += dt;
+    while (ranked.carry >= RANK_STEP && !run.done) {
+      stepRun(run, RANK_STEP, runEvent);
+      ranked.carry -= RANK_STEP;
+      ranked.ticks++;
+      if (ranked.ticks >= RANK_TICKS) run.done = true;
+    }
+    if (!run.done && !ranked.proofPending && ranked.ticks >= ranked.nextProof) {
+      const attempt = ranked;
+      const tick = attempt.ticks;
+      attempt.proofPending = true;
+      cloud.checkpoint(attempt.id, tick, attempt.moves).then(() => { attempt.nextProof = tick + PROOF_INTERVAL; })
+        .catch(() => { attempt.nextProof = tick + 350; }).finally(() => { attempt.proofPending = false; });
+    }
   }
 
   function hidePanel() {
+    if (panel === "rank") humanCheck.hide();
     panel = "";
     if (dialog.open) dialog.close();
   }
@@ -164,7 +288,7 @@ export function mount(root, { roomTransport = null } = {}) {
   }
 
   function snapshotSolo() {
-    if (mode !== "solo" || !run || run.done || run.practice) return;
+    if (mode !== "solo" || !run || run.done || run.practice || ranked) return;
     save.change(profile => { profile.checkpoint = loadRun(run); });
     updateMenu();
     lastSaved = performance.now();
@@ -192,6 +316,7 @@ export function mount(root, { roomTransport = null } = {}) {
     if (mode === "solo" && !run?.done) snapshotSolo();
     if (mode === "race") snapshotRace();
     run = null;
+    ranked = null;
     race = null;
     rivalModels = new Map();
     resetHud();
@@ -231,9 +356,10 @@ export function mount(root, { roomTransport = null } = {}) {
     }
   }
 
-  function beginSolo(next, countdown) {
+  function beginSolo(next, countdown, challenge = null) {
     sound.unlock();
     run = next;
+    ranked = challenge;
     resetHud();
     hidePanel();
     view("solo");
@@ -257,7 +383,7 @@ export function mount(root, { roomTransport = null } = {}) {
       pausedAt = performance.now();
       snapshotSolo();
     }
-    text("pause-text", run.practice ? "首领练习已暂停。" : save.available ? "单人进度已保存。" : "本轮进度已暂停。浏览器存储暂不可用。");
+    text("pause-text", ranked ? "排位已暂停。退出会结束本轮。" : run.practice ? "首领练习已暂停。" : save.available ? "单人进度已保存。" : "本轮进度已暂停。浏览器存储暂不可用。");
     openPanel("pause");
   }
 
@@ -277,6 +403,7 @@ export function mount(root, { roomTransport = null } = {}) {
     pausedAt = performance.now();
     show("practice-retry", run.practice);
     show("end-retry", !run.practice);
+    show("rank-submit-status", !!ranked);
     if (run.practice) {
       text("end-title", run.won ? "挑战成功" : "挑战结束");
       text("end-distance", run.boss.hp);
@@ -292,7 +419,7 @@ export function mount(root, { roomTransport = null } = {}) {
         profile.bestScore = Math.max(points, profile.bestScore);
         profile.total += distance;
         profile.fossils += gain;
-        profile.checkpoint = null;
+        if (!ranked) profile.checkpoint = null;
       });
       text("end-title", run.lastHit === "meteor" ? "被陨石击中" : "跑酷结束");
       nodes["end-distance"].parentElement.hidden = false;
@@ -304,6 +431,15 @@ export function mount(root, { roomTransport = null } = {}) {
     text("end-score", `${points} 分`);
     updateMenu();
     openPanel("end");
+    if (ranked) {
+      const result = ranked;
+      text("rank-submit-status", "正在校验排位成绩…");
+      cloud.submit(result.id, result.ticks, result.moves, result.nick).then(accepted => {
+        if (ranked === result) text("rank-submit-status", `已上报排行榜 · ${accepted.score} 分`);
+      }).catch(error => {
+        if (ranked === result) text("rank-submit-status", error.status && error.status < 429 ? error.message : "暂未上报，重新连接后会重试。");
+      });
+    }
   }
 
   function selectedOutfit() {
@@ -914,12 +1050,16 @@ export function mount(root, { roomTransport = null } = {}) {
           hidePanel();
         } else haltToMenu();
         break;
-      case "solo": launchSolo(); break;
+      case "solo": if (ranked && panel === "end") void launchRanked(); else launchSolo(); break;
       case "new-solo": launchSolo(false, true); break;
       case "practice-retry": launchPractice(practiceIndex); break;
       case "continue": launchSolo(true); break;
       case "pause": if (mode === "race") openPanel("leave"); else pauseSolo(); break;
       case "resume": resumeSolo(); break;
+      case "rank": if (mode === "menu" && !client.session) openPanel("rank"); break;
+      case "rank-refresh": void cloud.flush().then(refreshBoard); break;
+      case "rank-join": void joinRank(); break;
+      case "rank-start": void launchRanked(); break;
       case "close": closePanel(); break;
       case "online": openOnline(); break;
       case "create": void enterRoom("create"); break;
@@ -1006,7 +1146,13 @@ export function mount(root, { roomTransport = null } = {}) {
     if (mode === "menu" || paused || !run || run.done || dialog.open && panel !== "leave") return;
     if (startAt && (mode === "race" ? client.time() : performance.now()) < startAt) return;
     sound.unlock();
+    if (ranked && (ranked.moves.length >= MAX_MOVES * 2 || ranked.lastInput === ranked.ticks && ranked.sameTick >= MOVES_PER_TICK)) return;
     const moved = control(run, move, runEvent);
+    if (ranked && moved) {
+      ranked.sameTick = ranked.lastInput === ranked.ticks ? ranked.sameTick + 1 : 1;
+      ranked.lastInput = ranked.ticks;
+      ranked.moves.push(ranked.ticks, RANK_MOVES.indexOf(move));
+    }
     if (moved) sound.play(move === "left" || move === "right" ? "lane" : move);
   }
 
@@ -1142,7 +1288,8 @@ export function mount(root, { roomTransport = null } = {}) {
       }
 
       if (!paused && !startAt && !run.done) {
-        for (let remaining = dt; remaining > 0.0001 && !run.done;) {
+        if (ranked) advanceRanked(dt);
+        else for (let remaining = dt; remaining > 0.0001 && !run.done;) {
           const step = Math.min(remaining, 1 / 100);
           stepRun(run, step, runEvent);
           remaining -= step;
@@ -1156,7 +1303,7 @@ export function mount(root, { roomTransport = null } = {}) {
           feedback("冲线！等待其他玩家", 5000);
         }
       }
-      if (!paused && mode === "solo" && !run.done && !run.practice && now - lastSaved > 1050) snapshotSolo();
+      if (!ranked && !paused && mode === "solo" && !run.done && !run.practice && now - lastSaved > 1050) snapshotSolo();
       if (!paused) {
         for (const particle of particles) {
           particle.x += particle.vx * dt;
@@ -1280,7 +1427,7 @@ export function mount(root, { roomTransport = null } = {}) {
     on(canvas, "webglcontextlost", event => event.preventDefault());
     on(canvas, "webglcontextrestored", replace);
   }
-  on(window, "online", () => client.nudge());
+  on(window, "online", () => { client.nudge(); queueCloudSnapshot(); void cloud.flush(); });
   on(window, "offline", () => { if (client.session) client.setLink("reconnecting"); });
   on(document, "visibilitychange", () => {
     if (document.hidden) sound.update(null);
@@ -1307,6 +1454,7 @@ export function mount(root, { roomTransport = null } = {}) {
   buildGuide();
   buildPowerHud();
   updateMenu();
+  void cloud.flush();
   const incoming = new URL(location.href).searchParams.get("room")?.toUpperCase() || "";
   const remembered = client.pending();
   if (remembered && CODE_FORMAT.test(remembered.code) && (!incoming || incoming === remembered.code)) {
@@ -1322,10 +1470,12 @@ export function mount(root, { roomTransport = null } = {}) {
     client.dispose();
     roomTransport?.close();
     sound.dispose();
+    humanCheck.hide();
     hero.dispose();
     scene?.dispose();
     closet?.dispose();
     clearTimeout(toastTimer);
+    clearTimeout(cloudTimer);
     clearTimeout(feedbackTimer);
     clearTimeout(biomeTimer);
     drawFinish?.();

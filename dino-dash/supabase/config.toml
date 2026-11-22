@@ -1,0 +1,8 @@
+project_id = "dino-dash"
+
+[auth]
+site_url = "https://yricotf.github.io/dino-dash/"
+enable_anonymous_sign_ins = true
+
+[functions.dino-rank]
+verify_jwt = true
