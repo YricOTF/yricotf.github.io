@@ -1,10 +1,11 @@
-import { biomeAt, BIOMES } from "./course.js?v=5";
-import { control, normalizeRaceRules, loadRun, newPractice, newRun, RACE_METRES, RACE_RULES, runScore, stepRun, tune } from "./runner.js?v=5";
-import { ACCESSORIES, chestPrice, fragmentBalance, openChests, owns, packLook, SKINS, unlock, unpackLook, WARDROBE } from "./catalog.js?v=5";
-import { BOSSES, POWERUPS } from "./challenge.js?v=5";
-import { Scene } from "./scene.js?v=5";
-import { normalizeSave, readSession, Save, writeSession } from "./storage.js?v=5";
+import { biomeAt, BIOMES } from "./course.js?v=6";
+import { control, normalizeRaceRules, loadRun, newPractice, newRun, RACE_METRES, RACE_RULES, runScore, stepRun, tune } from "./runner.js?v=6";
+import { ACCESSORIES, buyOpeningBoost, chestPrice, OPENING_BOOSTS, fragmentBalance, openChests, owns, packLook, SKINS, unlock, unpackLook, WARDROBE } from "./catalog.js?v=6";
+import { BOSSES, POWERUPS } from "./challenge.js?v=6";
+import { Scene } from "./scene.js?v=6";
+import { normalizeSave, readSession, Save, writeSession } from "./storage.js?v=6";
 import { RoomClient } from "./network.js";
+import { Sound } from "./audio.js?v=6";
 
 const RACE_SAVE = "dino-dash.race.v1";
 const CODE_FORMAT = /^[2-9A-HJ-NP-Z]{6}$/;
@@ -20,54 +21,6 @@ function ranking(players) {
     if (a.finish || b.finish) return a.finish ? -1 : 1;
     return b.distance - a.distance || a.joined - b.joined;
   });
-}
-
-class Sound {
-  constructor() {
-    this.active = true;
-    this.context = null;
-  }
-
-  unlock() {
-    if (!this.active) return;
-    const Audio = window.AudioContext || window.webkitAudioContext;
-    if (!Audio) return;
-    try {
-      this.context ||= new Audio();
-      if (this.context.state === "suspended") this.context.resume().catch(() => {});
-    } catch {
-      this.context = null;
-    }
-  }
-
-  play(which) {
-    if (!this.active || this.context?.state !== "running") return;
-    const tones = {
-      jump: [330, 590, 0.12], fossil: [720, 1130, 0.103], hit: [145, 57, 0.21],
-      tick: [440, 440, 0.081], go: [600, 900, 0.148], unlock: [470, 920, 0.21],
-      chain: [540, 1350, 0.21], ride: [325, 650, 0.16], feint: [205, 111, 0.12],
-      power: [325, 960, 0.18], shield: [450, 185, 0.15], "boss-strike": [180, 710, 0.18],
-      "boss-clear": [490, 1170, 0.27], "boss-enter": [125, 340, 0.24], "boss-orb": [330, 960, 0.25],
-      skill: [435, 770, 0.11], "ride-clear": [590, 1120, 0.21],
-    };
-    const [start, end, time] = tones[which] || tones.tick;
-    const ctx = this.context;
-    const beginning = ctx.currentTime;
-    const oscillator = ctx.createOscillator();
-    const gain = ctx.createGain();
-    oscillator.type = "square";
-    oscillator.frequency.setValueAtTime(start, beginning);
-    oscillator.frequency.exponentialRampToValueAtTime(end, beginning + time);
-    gain.gain.setValueAtTime(0.033, beginning);
-    gain.gain.exponentialRampToValueAtTime(0.0002, beginning + time);
-    oscillator.connect(gain).connect(ctx.destination);
-    oscillator.start(beginning);
-    oscillator.stop(beginning + time + 0.01);
-  }
-
-  dispose() {
-    this.context?.close().catch(() => {});
-  }
 }
 
 export function mount(root, { roomTransport = null } = {}) {
@@ -156,12 +109,7 @@ export function mount(root, { roomTransport = null } = {}) {
     text("skin-total", `${profile.unlocked.length + profile.accessories.length} / ${WARDROBE.length}`);
     for (const btn of buttons("continue")) if (btn.classList.contains("continue")) setHidden(btn, !profile.checkpoint);
     if (profile.checkpoint) text("continue-distance", `· ${Math.floor(profile.checkpoint.distance)} m`);
-    sound.active = profile.sound;
-    const [soundButton] = buttons("sound");
-    soundButton.setAttribute("aria-pressed", String(!profile.sound));
-    soundButton.setAttribute("aria-label", profile.sound ? "静音" : "开启声音");
-    soundButton.title = profile.sound ? "静音" : "开启声音";
-    soundButton.firstElementChild.className = `icon icon-${profile.sound ? "sound" : "muted"}`;
+    sound.configure(profile.audio);
   }
 
   function openPanel(name) {
@@ -180,6 +128,8 @@ export function mount(root, { roomTransport = null } = {}) {
     }
     if (name === "save") renderSave();
     if (name === "chest") renderChest();
+    if (name === "shop") renderShop();
+    if (name === "settings") renderAudioSettings();
   }
 
   function hidePanel() {
@@ -263,7 +213,7 @@ export function mount(root, { roomTransport = null } = {}) {
         if (boost && profile.boosts[boost] > 0) {
           profile.boosts[boost]--;
           profile.boostSelected = "";
-          started.powers[boost] = POWERUPS[boost].duration;
+          Object.assign(started.powers, OPENING_BOOSTS[boost].effects);
         }
         profile.checkpoint = started;
         profile.savedAt = Date.now();
@@ -384,6 +334,14 @@ export function mount(root, { roomTransport = null } = {}) {
     return span;
   }
 
+  function rewardIcon(id) {
+    const icon = document.createElement("span");
+    icon.className = "reward-icon";
+    icon.dataset.icon = id;
+    icon.setAttribute("aria-hidden", "true");
+    return icon;
+  }
+
   function wardrobeSlotIsEquipped(profile, id) {
     return profile[wardrobeSlot] === id;
   }
@@ -468,16 +426,16 @@ export function mount(root, { roomTransport = null } = {}) {
     const tray = nodes["chest-results"];
     tray.replaceChildren(...receipt.map((reward, index) => {
       const card = document.createElement("div");
-      const symbol = document.createElement("span");
+      const symbol = reward.type === "shard" ? stamp(reward.id) : rewardIcon(reward.type === "boost" ? reward.id : "wildcard");
       const label = document.createElement("strong");
       const amount = document.createElement("small");
       card.className = "reward-card";
       card.dataset.reward = reward.type;
       card.style.setProperty("--order", index);
-      symbol.className = "reward-symbol";
-      symbol.textContent = reward.type === "boost" ? POWERUPS[reward.id].symbol : reward.type === "wildcard" ? "◆" : "◇";
+      symbol.classList.add("reward-symbol");
+      if (reward.type === "shard") symbol.append(rewardIcon("shard"));
       const item = WARDROBE.find(entry => entry.id === reward.id);
-      label.textContent = reward.type === "boost" ? POWERUPS[reward.id].name : item ? item.name : "万能碎片";
+      label.textContent = reward.type === "boost" ? OPENING_BOOSTS[reward.id].name : item ? item.name : "万能碎片";
       amount.textContent = reward.type === "shard" ? `碎片 ×${reward.count}` : `×${reward.count}`;
       card.append(symbol, label, amount);
       return card;
@@ -487,17 +445,17 @@ export function mount(root, { roomTransport = null } = {}) {
   }
 
   function renderBoosts(profile) {
-    const slots = Object.keys(POWERUPS).filter(id => profile.boosts[id] > 0);
+    const slots = Object.keys(OPENING_BOOSTS).filter(id => profile.boosts[id] > 0);
     show("boost-rack", slots.length > 0);
     nodes["boost-options"].replaceChildren(...slots.map(id => {
       const option = document.createElement("button");
       option.className = "boost-option";
       option.type = "button";
       option.dataset.boost = id;
-      option.textContent = `${POWERUPS[id].symbol} ×${profile.boosts[id]}`;
-      option.setAttribute("aria-label", `${POWERUPS[id].name} ×${profile.boosts[id]}`);
+      option.append(rewardIcon(id), `×${profile.boosts[id]}`);
+      option.setAttribute("aria-label", `${OPENING_BOOSTS[id].name} ×${profile.boosts[id]}`);
       option.setAttribute("aria-pressed", String(profile.boostSelected === id));
-      option.title = POWERUPS[id].name;
+      option.title = OPENING_BOOSTS[id].name;
       return option;
     }));
   }
@@ -517,11 +475,71 @@ export function mount(root, { roomTransport = null } = {}) {
   }
 
   async function selectBoost(id) {
-    if (!Object.hasOwn(POWERUPS, id) || chestBusy) return;
+    if (!Object.hasOwn(OPENING_BOOSTS, id) || chestBusy) return;
     await save.exclusive(() => save.change(profile => {
       if (profile.boosts[id]) profile.boostSelected = profile.boostSelected === id ? "" : id;
     }));
     if (panel === "chest") renderChest();
+    if (panel === "shop") renderShop(`[data-boost="${id}"]`);
+  }
+
+  function renderShop(restoreFocus) {
+    const profile = save.current;
+    text("shop-fossils", profile.fossils);
+    nodes["shop-items"].replaceChildren(...Object.entries(OPENING_BOOSTS).map(([id, boost]) => {
+      const row = document.createElement("li");
+      const copy = document.createElement("div");
+      const heading = document.createElement("strong");
+      const detail = document.createElement("small");
+      const controls = document.createElement("div");
+      const arm = document.createElement("button");
+      const buy = document.createElement("button");
+      heading.textContent = `${boost.name} ×${profile.boosts[id]}`;
+      detail.textContent = Object.entries(boost.effects).map(([power, duration]) => `${POWERUPS[power].name} ${duration} 秒`).join(" + ");
+      arm.type = buy.type = "button";
+      arm.className = buy.className = "button compact";
+      arm.dataset.boost = buy.dataset.buyBoost = id;
+      const selected = profile.boostSelected === id;
+      arm.textContent = selected ? "已选" : "选用";
+      arm.setAttribute("aria-label", `开局选用${boost.name}`);
+      arm.setAttribute("aria-pressed", String(selected));
+      arm.disabled = profile.boosts[id] === 0;
+      buy.textContent = `${boost.cost} 化石`;
+      buy.setAttribute("aria-label", `购买${boost.name}，${boost.cost} 枚化石`);
+      buy.disabled = profile.fossils < boost.cost || profile.boosts[id] >= 9999;
+      copy.append(heading, detail);
+      controls.append(arm, buy);
+      row.append(rewardIcon(id), copy, controls);
+      return row;
+    }));
+    if (restoreFocus) nodes["shop-items"].querySelector(restoreFocus)?.focus();
+  }
+
+  let buyingBoost = false;
+  async function buyBoost(id) {
+    if (buyingBoost || !Object.hasOwn(OPENING_BOOSTS, id)) return;
+    buyingBoost = true;
+    try {
+      let bought = false;
+      await save.exclusive(() => save.change(profile => { bought = buyOpeningBoost(profile, id); }));
+      updateMenu();
+      if (panel === "shop") {
+        renderShop(`[data-boost="${id}"]`);
+        text("shop-hint", bought ? `已购买${OPENING_BOOSTS[id].name} ×1` : "余额不足或库存已满。");
+      }
+      if (bought) sound.play("shop");
+    } finally {
+      buyingBoost = false;
+    }
+  }
+
+  function renderAudioSettings() {
+    const audio = save.current.audio;
+    for (const key of ["music", "effects"]) {
+      nodes[`${key}-enabled`].checked = audio[key];
+      nodes[`${key}-volume`].value = audio[`${key}Volume`];
+      text(`${key}-percent`, `${audio[`${key}Volume`]}%`);
+    }
   }
 
   async function openFossilChest(count) {
@@ -539,7 +557,7 @@ export function mount(root, { roomTransport = null } = {}) {
       preview.classList.add("drawing");
       text("chest-reward", `抽取 ${rewards.length} 件奖励`);
       text("chest-hint", save.available ? "" : "当前奖励可从存档导出。");
-      sound.play("power");
+      sound.play("chest");
       updateMenu();
       renderChest();
       if (!motionPreference.matches) {
@@ -886,7 +904,7 @@ export function mount(root, { roomTransport = null } = {}) {
 
   function action(which) {
     sound.unlock();
-    if (leaving || (entering || launching) && which !== "sound") return;
+    if (leaving || entering || launching) return;
     switch (which) {
       case "home":
         if (mode === "race") {
@@ -915,11 +933,15 @@ export function mount(root, { roomTransport = null } = {}) {
       }
       case "start-room": void lobbyCommand("start"); break;
       case "rematch": void lobbyCommand("reset"); break;
-      case "sound":
-        save.change(profile => { profile.sound = !profile.sound; });
-        updateMenu();
-        sound.unlock();
+      case "settings":
+        if (mode === "solo" && !run?.done && !paused) {
+          pausedAt = performance.now();
+          paused = true;
+          snapshotSolo();
+        }
+        openPanel("settings");
         break;
+      case "shop":
       case "save":
       case "guide":
       case "chest":
@@ -937,6 +959,7 @@ export function mount(root, { roomTransport = null } = {}) {
           setWardrobeSlot("skin");
         } else if (which === "save") text("save-hint", "");
         else if (which === "chest") text("chest-hint", "");
+        else if (which === "shop") text("shop-hint", "");
         openPanel(which);
         break;
       case "equip": equip(); break;
@@ -984,7 +1007,7 @@ export function mount(root, { roomTransport = null } = {}) {
     if (startAt && (mode === "race" ? client.time() : performance.now()) < startAt) return;
     sound.unlock();
     const moved = control(run, move, runEvent);
-    if (moved && move === "jump") sound.play("jump");
+    if (moved) sound.play(move === "left" || move === "right" ? "lane" : move);
   }
 
   function buildGuide() {
@@ -1008,12 +1031,11 @@ export function mount(root, { roomTransport = null } = {}) {
   function buildPowerHud() {
     for (const [id, power] of Object.entries(POWERUPS)) {
       const chip = document.createElement("div");
-      const legend = document.createElement("b");
+      const legend = rewardIcon(id);
       const timer = document.createElement("span");
       chip.className = "power-chip";
       chip.title = power.name;
       chip.hidden = true;
-      legend.textContent = power.symbol;
       chip.append(legend, timer);
       powerChips.set(id, { chip, timer });
       nodes["active-powers"].append(chip);
@@ -1073,6 +1095,10 @@ export function mount(root, { roomTransport = null } = {}) {
   }
 
   function animate(now) {
+    const quiet = document.hidden || run?.done || run?.death;
+    const theme = quiet ? null : mode === "menu" || panel === "settings" ? "menu" : paused ? null
+      : run?.boss ? "boss" : run && run.rules >= 3 ? biomeAt(run.seed, run.distance, run.rules, run.mode).id : "wild";
+    sound.update(theme);
     const dt = Math.min(0.072, (now - (lastFrame || now)) / 1000);
     lastFrame = now;
     const canDraw = now - lastDraw >= (mode === "menu" ? 30 : 11);
@@ -1152,6 +1178,8 @@ export function mount(root, { roomTransport = null } = {}) {
   }
 
   on(root, "click", event => {
+    const purchase = event.target.closest("[data-buy-boost]");
+    if (purchase) { void buyBoost(purchase.dataset.buyBoost); return; }
     const boost = event.target.closest("[data-boost]");
     if (boost) { void selectBoost(boost.dataset.boost); return; }
     const slot = event.target.closest("[data-wardrobe-slot]");
@@ -1180,6 +1208,27 @@ export function mount(root, { roomTransport = null } = {}) {
     void enterRoom("join");
   });
   on(nodes["import-file"], "change", event => void readImport(event.target.files[0]));
+  for (const key of ["music", "effects"]) {
+    const toggle = nodes[`${key}-enabled`];
+    const volume = nodes[`${key}-volume`];
+    const volumeKey = `${key}Volume`;
+    on(toggle, "change", () => {
+      save.change(profile => { profile.audio[key] = toggle.checked; });
+      sound.configure(save.current.audio);
+      sound.unlock();
+      if (key === "effects" && toggle.checked) sound.play("fossil");
+    });
+    on(volume, "input", () => {
+      sound.configure({ ...save.current.audio, [volumeKey]: Number(volume.value) });
+      text(`${key}-percent`, `${volume.value}%`);
+    });
+    on(volume, "change", () => {
+      save.change(profile => { profile.audio[volumeKey] = Number(volume.value); });
+      sound.configure(save.current.audio);
+      sound.unlock();
+      if (key === "effects") sound.play("fossil");
+    });
+  }
   on(dialog, "cancel", event => { event.preventDefault(); closePanel(); });
   on(window, "keydown", event => {
     if (event.repeat || event.altKey || event.ctrlKey || event.metaKey || event.defaultPrevented) return;
@@ -1234,6 +1283,7 @@ export function mount(root, { roomTransport = null } = {}) {
   on(window, "online", () => client.nudge());
   on(window, "offline", () => { if (client.session) client.setLink("reconnecting"); });
   on(document, "visibilitychange", () => {
+    if (document.hidden) sound.update(null);
     if (document.hidden && mode === "solo" && !paused && !run?.done) pauseSolo();
     if (document.hidden && mode === "race") snapshotRace();
     if (!document.hidden) client.nudge();
@@ -1250,6 +1300,8 @@ export function mount(root, { roomTransport = null } = {}) {
     if (panel === "save") renderSave();
     if (panel === "closet") renderCloset();
     if (panel === "chest") renderChest();
+    if (panel === "shop") renderShop();
+    if (panel === "settings") renderAudioSettings();
   });
 
   buildGuide();

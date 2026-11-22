@@ -1,5 +1,5 @@
-import { hash } from "./course.js?v=5";
-import { VINE_GAP_END, VINE_GAP_START, VINE_GRIP } from "./movement.js?v=5";
+import { hash } from "./course.js?v=6";
+import { VINE_GAP_END, VINE_GAP_START, VINE_GRIP } from "./movement.js?v=6";
 
 const sides = [-1, 1];
 
@@ -50,55 +50,100 @@ export function ravine(scene, x, z, length, forest = false) {
   }
 }
 
+export function sandstone(scene, x, z, height, width = 1.8, side = 1) {
+  for (let i = 0; i < 4; i++) {
+    const size = width * (1 - i * 0.13);
+    scene.box(x + i * side * 0.16, (i + 0.5) * height / 4, z + i * 0.11,
+      size, height / 4 + 0.035, size * 0.83, ["#99937c", "#a79c81", "#b4a78d", "#a39a82"][i]);
+  }
+}
+
 export function courseLandmark(scene, form, z, biome) {
-  const tint = biome.id === "cave" ? "#78827b" : biome.id === "jungle" ? "#869078" : "#9a9c8b";
-  const cap = biome.id === "cave" ? "#a3a08a" : biome.id === "jungle" ? "#a1a78c" : "#b2b2a0";
-  const pillar = (x, offset, height) => {
-    scene.box(x, height / 2, z + offset, 0.82, height, 0.91, tint);
-    scene.box(x, height, z + offset, 1.08, 0.31, 1.18, cap);
-    scene.box(x, 0.18, z + offset, 1.28, 0.36, 1.38, tint);
+  const wild = biome.id === "wild";
+  const forest = biome.id === "jungle";
+  const wood = forest ? "#596b51" : "#766d5e";
+  const span = (x, height, depth) => {
+    if (wild) {
+      sandstone(scene, x, z + depth, height, 2.04, Math.sign(x) * -1);
+      scene.rock(x + Math.sign(x) * 1.46, z + depth + 0.54, 0.86, true);
+    } else if (forest) {
+      scene.jungleTree(x, z + depth, height, x > 0);
+      scene.box(x - Math.sign(x) * 0.22, 0.26, z + depth, 1.75, 0.51, 1.37, "#596950");
+    } else {
+      scene.box(x, height / 2, z + depth, 0.50, height, 0.82, wood);
+      scene.box(x, height * 0.78, z + depth, 0.65, 0.25, 0.90, "#a2957b");
+      scene.box(x, 0.19, z + depth, 0.92, 0.36, 1.14, "#676e63");
+      scene.box(x - Math.sign(x) * 0.22, Math.min(height - 0.2, 2.72), z + depth + 0.48, 0.24, 0.39, 0.15, "#ecd49a");
+    }
+  };
+  const bridge = (depth, height, style) => {
+    for (const side of sides) span(side * 5.97, height, depth);
+    if (wild) {
+      for (const side of sides) {
+        scene.box(side * 4.49, height + 0.17, z + depth, 2.64, 0.91, 1.56, "#a39880");
+        scene.box(side * 3.08, height + 0.63, z + depth - 0.13, 2.88, 0.84, 1.33, "#b5a58a");
+      }
+      scene.box(0.24, height + 1.04, z + depth - 0.04, 5.95, 0.73, 1.31, "#a79f85");
+    } else if (forest) {
+      scene.box(-0.43, height + 0.08, z + depth, 11.65, 0.46, 0.88, wood);
+      for (const side of sides) {
+        scene.box(side * 2.6, height + 0.47, z + depth - 0.27, 5.3, 0.56, 2.5, "#708469");
+        scene.box(side * 2.95, height + 0.92, z + depth - 0.20, 4.9, 0.42, 1.93, "#869a7d");
+      }
+    } else {
+      scene.box(0, height + 0.06, z + depth, 12.45, 0.42, 0.76, wood);
+      for (const side of sides) {
+        scene.box(side * 5.37, height - 0.30, z + depth, 1.32, 0.22, 0.64, "#92836e");
+        if (style === "arch") scene.box(side * 4.93, height - 0.62, z + depth, 0.25, 0.47, 0.26, "#dec795");
+      }
+    }
   };
   switch (form.id) {
     case "arch":
-      for (const side of sides) {
-        pillar(side * 5.53, 0, 4.8);
-        scene.box(side * 4.73, 5.29, z, 2.22, 0.85, 0.92, tint);
-        scene.box(side * 3.67, 5.87, z, 2.31, 0.68, 0.97, tint);
-      }
-      scene.box(0, 6.39, z, 6.28, 0.62, 0.9, cap);
+      bridge(0, wild ? 5.17 : 6.06, form.id);
       break;
     case "underpass":
+    case "gates":
       for (const side of sides) {
-        pillar(side * 5.51, 4.0, 3.5);
-        pillar(side * 5.51, -4.0, 3.45);
-        scene.box(side * 5.51, 3.29, z, 0.33, 0.32, 8.68, cap);
+        for (const offset of form.id === "gates" ? [-6.6, 6.6] : [-4.0, 4.0]) {
+          span(side * (forest ? 7.08 : 5.93), offset, forest ? 4.94 : 2.85);
+        }
+        if (!wild) scene.box(side * 5.9, forest ? 3.32 : 1.33, z, forest ? 0.39 : 0.16, 0.23, form.id === "gates" ? 12.5 : 7.8, wood);
       }
       break;
     case "slalom":
       for (let i = 0; i < 4; i++) {
-        const x = form.side * (i < 2 ? 5.56 : -5.56);
-        pillar(x, 10 - i * 6.2, 1.37 + (i % 2) * 0.58);
+        const x = form.side * (i < 2 ? 6.12 : -6.12);
+        const offset = 10 - i * 6.2;
+        if (forest) scene.jungleTree(x + Math.sign(x) * .71, z + offset, 3.16 + i % 2, i % 2 === 0);
+        else if (wild) sandstone(scene, x, z + offset, 1.5 + i % 2 * .76, 1.66, Math.sign(x));
+        else scene.minerals(x, z + offset, 1.17 + i % 2 * .64);
       }
       break;
     case "double":
       for (const side of sides) {
-        scene.rock(side * 6.16, z + 3.8, 1.20, true);
-        scene.rock(side * 6.47, z - 3.4, 1.53, true);
-        scene.box(side * 6.02, 0.21, z, 1.05, 0.42, 7.6, cap);
+        if (forest) {
+          scene.jungleTree(side * 7.26, z - 1.72, 4.9, side > 0);
+          scene.box(side * 5.97, .26, z + 1.3, .9, .47, 4.62, wood);
+        } else if (wild) {
+          sandstone(scene, side * 6.65, z + 3.65, .69, 2.12, side);
+          sandstone(scene, side * 6.97, z - 3.72, 1.06, 2.42, side);
+        } else {
+          scene.minerals(side * 6.14, z - 3.34, 1.06);
+          scene.box(side * 5.82, .22, z + 1.44, .85, .41, 2.46, wood);
+        }
       }
       break;
     case "ravine":
       for (const side of sides) {
-        pillar(side * 5.62, 3.15, 1.1);
-        pillar(side * 5.62, -3.15, 1.1);
-        scene.box(side * 5.64, 0.86, z, 0.18, 0.24, 6.53, cap);
-      }
-      break;
-    case "gates":
-      for (const side of sides) {
-        pillar(side * 5.63, 6.6, 4.22);
-        pillar(side * 5.63, -6.6, 4.22);
-        scene.box(side * 4.79, 4.83, z + side * 6.6, 2.34, 0.52, 1.33, cap);
+        if (forest) {
+          scene.jungleTree(side * 7.75, z + 2.7, 4.4, side > 0);
+          scene.rock(side * 5.75, z - 3.4, .76, true);
+        } else if (wild) sandstone(scene, side * 6.58, z + 2.35, .68, 2.61, side);
+        else {
+          span(side * 6.1, 3.4, 1.65);
+          scene.box(side * 5.89, .77, z, .18, .19, 5.7, wood);
+        }
       }
       break;
   }

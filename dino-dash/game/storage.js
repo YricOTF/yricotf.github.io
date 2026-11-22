@@ -1,6 +1,5 @@
-import { POWERUPS } from "./challenge.js?v=5";
-import { loadRun } from "./runner.js?v=5";
-import { ACCESSORIES, restoreRewards, SKINS, WARDROBE, unpackLook } from "./catalog.js?v=5";
+import { loadRun } from "./runner.js?v=6";
+import { ACCESSORIES, OPENING_BOOSTS, restoreRewards, SKINS, WARDROBE, unpackLook } from "./catalog.js?v=6";
 
 const KEY = "dino-dash.save.v1";
 
@@ -26,6 +25,13 @@ function points(value) {
   return Number.isFinite(value) ? Math.max(0, Math.min(Number.MAX_SAFE_INTEGER, Math.floor(value))) : 0;
 }
 
+export function normalizeAudio(audio, enabled = true) {
+  const volume = (value, fallback) => Number.isFinite(value) ? Math.min(100, Math.max(0, Math.round(value))) : fallback;
+  const toggle = value => typeof value === "boolean" ? value : enabled;
+  return { music: toggle(audio?.music), effects: toggle(audio?.effects),
+    musicVolume: volume(audio?.musicVolume, 40), effectsVolume: volume(audio?.effectsVolume, 72) };
+}
+
 export function normalizeSave(raw) {
   const data = raw && typeof raw === "object" ? raw : {};
   const unlocked = Array.isArray(data.unlocked) ? data.unlocked : [];
@@ -41,7 +47,7 @@ export function normalizeSave(raw) {
     const count = points(data.fragments?.[item.id]);
     if (item.cost && count) fragments[item.id] = Math.min(9999, count);
   }
-  const boosts = Object.fromEntries(Object.keys(POWERUPS).map(id => [id, Math.min(9999, points(data.boosts?.[id]))]));
+  const boosts = Object.fromEntries(Object.keys(OPENING_BOOSTS).map(id => [id, Math.min(9999, points(data.boosts?.[id]))]));
   return {
     version: 2,
     best: points(data.best),
@@ -59,7 +65,7 @@ export function normalizeSave(raw) {
     boostSelected: boosts[data.boostSelected] > 0 ? data.boostSelected : "",
     chestReceipt: restoreRewards(data.chestReceipt),
     chestOpened: data.chestOpened === true,
-    sound: data.sound !== false,
+    audio: normalizeAudio(data.audio, data.sound !== false),
     nick: typeof data.nick === "string" ? data.nick.slice(0, 16) : "",
     checkpoint: loadRun(data.checkpoint),
     races: Array.isArray(data.races) ? data.races.filter(v => typeof v === "string" && v.length <= 16).slice(-30) : [],

@@ -650,3 +650,42 @@ kbd.space-key { min-width: 30px; font-size: 0.72rem; }
 @media (prefers-reduced-motion: reduce) {
   .chest-preview.drawing .chest-figure, .drawing .reward-card, .chest-preview.opened .chest-sparks { animation: none; }
 }
+
+.reward-icon {
+  display: inline-block; flex: 0 0 auto; width: 24px; height: 24px;
+  background: url("./icons/rewards.png") var(--reward-x, 0%) center / 900% 100% no-repeat;
+  image-rendering: pixelated;
+}
+.reward-icon[data-icon="shield"] { --reward-x: 12.5%; }
+.reward-icon[data-icon="amber"] { --reward-x: 25%; }
+.reward-icon[data-icon="feather"] { --reward-x: 37.5%; }
+.reward-icon[data-icon="trail"] { --reward-x: 50%; }
+.reward-icon[data-icon="scout"] { --reward-x: 62.5%; }
+.reward-icon[data-icon="wildcard"] { --reward-x: 75%; }
+.reward-icon[data-icon="shard"] { --reward-x: 87.5%; }
+.reward-icon[data-icon="settings"] { --reward-x: 100%; width: 18px; height: 18px; }
+.reward-icon.inline-icon { width: 14px; height: 14px; vertical-align: -3px; }
+.reward-symbol.wardrobe-stamp { width: 32px; height: 24px; position: relative; }
+.reward-symbol .reward-icon { position: absolute; width: 13px; height: 13px; right: -2px; bottom: -2px; }
+.boost-option { display: inline-flex; align-items: center; justify-content: center; gap: 3px; padding-inline: 4px; }
+.boost-option .reward-icon, .power-chip .reward-icon { width: 17px; height: 17px; }
+.shop-items { display: grid; list-style: none; padding: 0; gap: 6px; }
+.shop-items li { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 8px; padding: 8px; border: 1px solid #c4cabc; background: #f1f3e9; }
+.shop-items li > div:last-child { display: flex; gap: 4px; }
+.shop-items strong, .shop-items small { display: block; }
+.shop-items small { color: #565d52; line-height: 1.25; font-size: .74rem; margin-top: 2px; }
+.shop-items .button { padding-inline: 7px; min-width: 0; font-size: .78rem; white-space: nowrap; }
+.shop-items [aria-pressed="true"] { color: #f4f5ed; background: #3b4438; }
+.audio-settings { display: grid; gap: 15px; }
+.audio-settings fieldset { min-width: 0; margin: 0; border: 1px solid #bac1b3; padding: 10px 12px 14px; }
+.audio-settings legend { font-weight: 750; padding: 0 4px; }
+.audio-toggle { display: flex; align-items: center; gap: 7px; min-height: 32px; }
+.audio-settings input { accent-color: #3c483b; }
+.volume-field { display: grid; grid-template-columns: auto minmax(55px,1fr) 40px; align-items: center; gap: 9px; font-size: .85rem; }
+.volume-field input { width: 100%; min-height: 32px; }
+.volume-field output { text-align: right; font-family: var(--mono); }
+@media(max-width:390px) {
+  .shop-items li { padding: 6px 4px; gap: 5px; }
+  .shop-items li > .reward-icon { width: 21px; height: 21px; }
+  .shop-items .button { padding-inline: 5px; }
+}

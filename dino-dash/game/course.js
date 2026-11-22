@@ -1,5 +1,5 @@
-import { improveRewardTrail, layoutGroup, LAYOUTS } from "./layouts.js?v=5";
-import { MAX_SOLO_SPEED } from "./movement.js?v=5";
+import { improveRewardTrail, layoutGroup, LAYOUTS } from "./layouts.js?v=6";
+import { MAX_SOLO_SPEED } from "./movement.js?v=6";
 
 export const BIOME_LENGTH = 90 * MAX_SOLO_SPEED;
 const SHORT_BIOME_LENGTH = 230;

@@ -1,9 +1,9 @@
-import { courseGroup, FIRST_GROUP, flightPose, GROUP_SPACING, hash, isFlyer, rideHeight, rideLength, trackDistance } from "./course.js?v=5";
-import { advanceBoss, battleRoute, beginBoss, BOSSES, collectStrike, LANES, POWERUPS, restoreBoss } from "./challenge.js?v=5";
-import { cruisingSpeed, HIGH_JUMP_TIME, JUMP_TIME, jumpHeight, VINE_GAP_END, VINE_GAP_START, VINE_GRAB_END, VINE_GRAB_START, VINE_GRIP } from "./movement.js?v=5";
+import { courseGroup, FIRST_GROUP, flightPose, GROUP_SPACING, hash, isFlyer, rideHeight, rideLength, trackDistance } from "./course.js?v=6";
+import { advanceBoss, battleRoute, beginBoss, BOSSES, collectStrike, LANES, POWERUPS, restoreBoss } from "./challenge.js?v=6";
+import { cruisingSpeed, HIGH_JUMP_TIME, JUMP_TIME, jumpHeight, VINE_GAP_END, VINE_GAP_START, VINE_GRAB_END, VINE_GRAB_START, VINE_GRIP } from "./movement.js?v=6";
 
 export { LANES, hash };
-export { SKINS } from "./catalog.js?v=5";
+export { SKINS } from "./catalog.js?v=6";
 export const RACE_METRES = 650;
 export const RACE_LIMIT_MS = 65_000;
 export const RACE_RULES = 5;

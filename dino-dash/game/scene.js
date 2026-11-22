@@ -1,10 +1,10 @@
-import { biomeAt, biomeLength, BIOMES, flightPose, isFlyer } from "./course.js?v=5";
-import { ARENA_BOSS_DEPTH, ARENA_EXIT, ARENA_LEAD, arenaSites, groupsNear, hash, LANES, clamp, tune } from "./runner.js?v=5";
-import { skinInfo, unpackLook } from "./catalog.js?v=5";
-import { battleRoute, bossAttack, BOSSES, chargeDepth, impactTime, sweepDepth } from "./challenge.js?v=5";
-import { drawAccessories, drawSpecies, REX_FIT } from "./avatars.js?v=5";
-import { arenaEntrance, courseLandmark, mountainPortal, ravine, trackside, vineTree } from "./landscape.js?v=5";
-import { VINE_GAP_END, VINE_GAP_START } from "./movement.js?v=5";
+import { biomeAt, biomeLength, BIOMES, flightPose, isFlyer } from "./course.js?v=6";
+import { ARENA_BOSS_DEPTH, ARENA_EXIT, ARENA_LEAD, arenaSites, groupsNear, hash, LANES, clamp, tune } from "./runner.js?v=6";
+import { skinInfo, unpackLook } from "./catalog.js?v=6";
+import { battleRoute, bossAttack, BOSSES, chargeDepth, impactTime, sweepDepth } from "./challenge.js?v=6";
+import { drawAccessories, drawSpecies, REX_FIT } from "./avatars.js?v=6";
+import { arenaEntrance, courseLandmark, mountainPortal, ravine, sandstone, trackside, vineTree } from "./landscape.js?v=6";
+import { VINE_GAP_END, VINE_GAP_START } from "./movement.js?v=6";
 
 const FOG = [0.94, 0.94, 0.92];
 const colors = new Map();
@@ -302,14 +302,18 @@ export class Scene {
 
   fossil(x, y, z, angle, scale = 1) {
     const actor = { x, y, z, cos: Math.cos(angle), sin: Math.sin(angle), scale, flatten: 1 };
-    const block = (left, up, w, h, color) => this.box(left, up, 0, w, h, 0.12, color, actor);
-    block(0, 0, 0.42, 0.65, "#796b46");
-    block(0, 0, 0.63, 0.43, "#796b46");
-    block(0, 0, 0.42, 0.43, "#e8d9a4");
-    block(0, 0.12, 0.27, 0.09, "#a08b58");
-    block(0.1, 0, 0.077, 0.21, "#a08b58");
-    block(0.03, -0.1, 0.17, 0.08, "#a08b58");
-    block(-0.05, -0.037, 0.08, 0.08, "#a08b58");
+    const block = (left, up, depth, w, h, d, color) => this.box(left, up, depth, w, h, d, color, actor);
+    block(-.04, -.07, 0, .67, .42, .29, "#77786c");
+    block(.04, .14, .012, .49, .23, .26, "#919182");
+    block(-.20, -.25, -.019, .28, .14, .24, "#707467");
+    block(.25, .025, .026, .20, .19, .23, "#a1a18d");
+    // The relief runs through the rock so both turning faces share the same voxel shape.
+    block(-.14, .06, 0, .31, .10, .337, "#f0eedc");
+    block(-.205, -.04, 0, .20, .12, .337, "#dedec8");
+    block(.018, .026, 0, .145, .060, .338, "#e9e6d2");
+    block(.12, -.032, 0, .137, .055, .338, "#e9e6d2");
+    for (let i = 0; i < 2; i++) block(.024 + i * .086, -.054 - i * .043, 0, .038, .106, .338, "#cecfb8");
+    block(-.205, .077, 0, .049, .046, .342, "#737b6c");
   }
 
   laneMark(x, z, width, length, time, safe = false) {
@@ -396,7 +400,7 @@ export class Scene {
     }
   }
 
-  battle(run, time, roof) {
+  battle(run, time, roof, habitat) {
     const state = run.boss;
     const attack = bossAttack(state);
     const exposed = state.phase === "exposed";
@@ -439,7 +443,7 @@ export class Scene {
     }
     const route = battleRoute(state);
     if (route) {
-      for (const mark of route.obstacles) this.obstacle(mark, route.distance - mark.d, time, false, roof);
+      for (const mark of route.obstacles) this.obstacle(mark, route.distance - mark.d, time, false, roof, true, 0, habitat);
       if (exposed) {
         const item = route.attack;
         const relative = route.distance - item.d;
@@ -524,7 +528,7 @@ export class Scene {
     }
   }
 
-  obstacle(mark, z, time, hit, roof, modern = true, deathAge = 0) {
+  obstacle(mark, z, time, hit, roof, modern = true, deathAge = 0, habitat = "wild") {
     const x = LANES[mark.lane];
     if (mark.kind === "meteor") {
       if (z < -43) return;
@@ -540,18 +544,37 @@ export class Scene {
     } else if (mark.kind === "cart" || mark.kind === "minecart") {
       this.cart(x, z * (mark.kind === "cart" ? 1.25 : 1), mark.kind === "cart");
     } else if (mark.kind === "rift" || mark.kind === "washout" && modern) {
-      ravine(this, x, z, mark.kind === "rift" ? 5.1 : 3, false);
+      ravine(this, x, z, mark.kind === "rift" ? 5.1 : 3, habitat === "jungle");
     } else if (mark.kind === "hurdle") {
       this.shadow(x, z, 2.38, 1.0, 0.44);
-      for (const side of [-1, 1]) this.box(x + side * 0.91, 0.32, z, 0.36, 0.64, 0.72, "#76776a");
-      this.box(x, 0.64, z, 2.29, 0.31, 0.51, "#9c9781");
-      this.box(x, 0.825, z - 0.03, 1.61, 0.09, 0.44, "#b4ac92");
+      if (habitat === "wild") sandstone(this, x, z, .79, 2.3);
+      else if (habitat === "jungle") {
+        this.box(x, .34, z, 2.41, .53, .68, "#66674e");
+        this.box(x + .27, .66, z - .04, 1.78, .26, .59, "#7c8966");
+        this.box(x + .68, .21, z + .33, .87, .31, .61, "#5f6c52");
+        this.box(x - .63, .45, z + .37, .22, .32, .056, "#a09b7d");
+      } else {
+        this.box(x, .37, z, 2.14, .74, .79, "#706455");
+        this.box(x, .73, z, 2.18, .15, .85, "#ad9b7e");
+        for (const side of [-1, 1]) this.box(x + side * .78, .38, z + .42, .17, .75, .075, "#918d78");
+      }
     } else if (mark.kind === "lowgate") {
       this.shadow(x, z, 2.56, 1.17, 0.51);
-      for (const side of [-1, 1]) this.box(x + side * 1.11, 1.08, z, 0.18, 2.16, 0.61, "#736e5f");
-      this.box(x, 1.41, z, 2.49, 0.49, 0.74, "#9b917b");
-      this.box(x, 1.68, z, 2.14, 0.13, 0.68, "#a6a18d");
-      for (let n = -1; n <= 1; n++) this.box(x + n * 0.55, 1.43, z + 0.4, 0.22, 0.21, 0.055, "#ded4ac");
+      if (habitat === "wild") {
+        for (const side of [-1, 1]) sandstone(this, x + side * 1.10, z, 1.59, .53, -side);
+        this.box(x, 1.43, z - .04, 2.56, .51, .82, "#9e967e");
+        this.box(x - .38, 1.80, z - .19, 1.58, .28, .68, "#b4a78a");
+      } else if (habitat === "jungle") {
+        for (const side of [-1, 1]) this.box(x + side * 1.20, .91, z + side * .17, .30, 1.81, .62, "#59634e");
+        this.box(x, 1.41, z, 2.81, .47, .84, "#637253");
+        this.box(x + .33, 1.81, z - .13, 2.55, .33, 1.09, "#7b9171");
+        this.box(x - .72, 1.49, z + .52, .55, .30, .36, "#859b77");
+      } else {
+        for (const side of [-1, 1]) this.box(x + side * 1.11, 1.04, z, .21, 2.08, .61, "#736654");
+        this.box(x, 1.41, z, 2.49, .49, .74, "#978267");
+        this.box(x, 1.74, z, 2.39, .16, .61, "#6f6859");
+        for (const side of [-1, 1]) this.box(x + side * .92, 1.53, z + .4, .13, .32, .058, "#dfcda4");
+      }
     } else if (mark.kind === "mud" || mark.kind === "washout") {
       const mud = mark.kind === "mud";
       this.box(x, 0.02, z, 2.73, 0.03, 3.12, mud ? "#6b6d56" : "#3d4945");
@@ -562,7 +585,9 @@ export class Scene {
       }
     } else if (["thorn", "idol", "pillar"].includes(mark.kind)) {
       this.shadow(x, z, 2.47, 1.91, 0.58);
-      if (mark.kind === "thorn") {
+      if (mark.kind === "idol" && habitat === "wild") {
+        sandstone(this, x, z, 3.84, 2.2);
+      } else if (mark.kind === "thorn") {
         for (let i = -1; i <= 1; i++) {
           this.box(x + i * 0.69, 1.63 + i * 0.17, z, 0.21, 3.38 + i * 0.34, 0.41, "#646c53");
           this.box(x + i * 0.62, 2.07 - i * 0.71, z + 0.26, 0.72, 0.35, 0.63, "#859175");
@@ -857,7 +882,7 @@ export class Scene {
       }
     }
     if (run.boss) {
-      this.battle(run, time, roof);
+      this.battle(run, time, roof, mapAt(distance).id);
     } else {
       const upcoming = sites[run.nextBoss];
       if (upcoming !== undefined && upcoming - distance < 76 && distance <= upcoming) {
@@ -876,7 +901,7 @@ export class Scene {
           if (mark.kind === "vine" && run.ride?.d === mark.d) continue;
           const impact = run.death?.kind === mark.kind && Math.abs(z) < 4 && Math.abs(run.x - LANES[mark.lane]) < 1.3;
           this.obstacle(mark, z, time + (impact ? run.death.age : 0), run.hit[mark.id] != null && (!impact || mark.kind === "meteor"),
-            roof, modern, impact ? run.death.age : 0);
+            roof, modern, impact ? run.death.age : 0, mapAt(mark.d).id);
         }
         for (const pick of group.fossils) {
           const z = distance - pick.d;

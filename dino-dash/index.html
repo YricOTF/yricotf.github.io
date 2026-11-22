@@ -6,13 +6,14 @@
   <meta name="description" content="黑白像素 3D 恐龙跑酷。拾取道具、躲避陨石、挑战荒原首领。支持存档、装扮和多人竞速。">
   <title>DINO DASH · 像素荒原</title>
   <link rel="icon" type="image/png" href="./dino.png">
-  <link rel="stylesheet" href="./game.css?v=5">
+  <link rel="stylesheet" href="./game.css?v=6">
 </head>
 <body>
-<div class="game-app"><header class="topbar"><div class="topbar-inner"><button class="brand" data-action="home" aria-label="DINO DASH 主页"><span class="icon icon-dino" aria-hidden="true"></span><span>DINO DASH</span></button><nav class="top-actions" aria-label="游戏菜单"><button class="utility" data-action="save"><span class="icon icon-save" aria-hidden="true"></span><span>存档</span></button><button class="utility" data-action="closet"><span class="icon icon-shirt" aria-hidden="true"></span><span>装扮</span></button><button class="utility audio-button" data-action="sound" aria-label="静音" aria-pressed="false"><span class="icon icon-sound" aria-hidden="true"></span></button></nav></div></header><main class="main"><section class="console" aria-label="跑酷游戏"><div class="stage"><div class="menu-stage" data-view="menu"><div class="hero-copy"><p class="eyebrow hero-label"><span></span>3D 像素跑酷</p><h1 aria-label="Dino Dash"><span>DINO</span><span>DASH</span></h1><p class="hero-desc"><strong>像素荒原</strong><span aria-hidden="true">/</span> 三车道无尽跑酷</p><div class="hero-actions"><button class="button solid" data-action="solo"><span class="icon icon-play" aria-hidden="true"></span>单人开跑</button><button class="button" data-action="online"><span class="icon icon-people" aria-hidden="true"></span>多人联机</button></div>
+<div class="game-app"><header class="topbar"><div class="topbar-inner"><button class="brand" data-action="home" aria-label="DINO DASH 主页"><span class="icon icon-dino" aria-hidden="true"></span><span>DINO DASH</span></button><nav class="top-actions" aria-label="游戏菜单"><button class="utility" data-action="save"><span class="icon icon-save" aria-hidden="true"></span><span>存档</span></button><button class="utility" data-action="closet"><span class="icon icon-shirt" aria-hidden="true"></span><span>装扮</span></button><button class="utility audio-button" data-action="settings" aria-label="设置" title="设置"><span class="reward-icon" data-icon="settings" aria-hidden="true"></span></button></nav></div></header><main class="main"><section class="console" aria-label="跑酷游戏"><div class="stage"><div class="menu-stage" data-view="menu"><div class="hero-copy"><p class="eyebrow hero-label"><span></span>3D 像素跑酷</p><h1 aria-label="Dino Dash"><span>DINO</span><span>DASH</span></h1><p class="hero-desc"><strong>像素荒原</strong><span aria-hidden="true">/</span> 三车道无尽跑酷</p><div class="hero-actions"><button class="button solid" data-action="solo"><span class="icon icon-play" aria-hidden="true"></span>单人开跑</button><button class="button" data-action="online"><span class="icon icon-people" aria-hidden="true"></span>多人联机</button></div>
 <div class="hero-links">
   <button class="text-button" data-action="guide">首领练习</button>
   <button class="text-button" data-action="chest">宝箱</button>
+  <button class="text-button" data-action="shop">化石商店</button>
 </div>
 <button class="text-button continue" data-action="continue" hidden=""><span class="icon icon-save" aria-hidden="true"></span>继续单人存档 <span id="continue-distance"></span></button></div><div class="hero-world" aria-hidden="true"><div class="pixel-sun"></div><div class="hero-dots"></div><canvas id="hero-canvas"></canvas></div></div><div class="play-stage" data-view="play" hidden=""><div class="play-sky"></div><canvas id="play-canvas" aria-label="三车道恐龙跑酷赛道"></canvas><div class="hud"><div class="hud-group" aria-label="当前成绩"><div class="hud-item"><span>距离</span><strong><span id="run-distance">0000</span><small> M</small></strong></div><div class="hud-item hud-fossils"><span><span class="icon icon-fossil" aria-hidden="true"></span> 化石</span><strong id="run-fossils">00</strong></div><div class="hud-item hud-score"><span>分数</span><strong id="run-score">00</strong></div></div><div class="hud-side"><button class="square-button" data-action="pause" aria-label="暂停" title="暂停"><span class="icon icon-pause" aria-hidden="true"></span></button><div id="race-status" class="race-status" hidden=""><span id="race-network"></span><span id="race-clock"></span><div id="race-standings"></div></div></div></div><section id="boss-hud" class="boss-hud" aria-label="首领战" hidden>
   <div class="boss-status"><strong id="boss-name"></strong><span id="boss-count"></span></div>
@@ -60,18 +61,40 @@
   </div>
   <div class="chest-balances">
     <span><span class="icon icon-fossil" aria-hidden="true"></span> 化石 <strong id="chest-fossils"></strong></span>
-    <span><span class="fragment-mark" aria-hidden="true"></span> 万能碎片 <strong id="chest-universal"></strong></span>
+    <span><span class="reward-icon inline-icon" data-icon="wildcard" aria-hidden="true"></span> 万能碎片 <strong id="chest-universal"></strong></span>
   </div>
   <div id="boost-rack" class="boost-rack" hidden>
     <strong>开局增益</strong>
     <div id="boost-options" class="boost-options"></div>
   </div>
   <div class="panel-actions chest-actions">
-    <button class="button" data-action="closet">衣柜</button>
+    <button class="button" data-action="shop">商店</button>
     <button class="button" id="chest-open" data-action="open-chest">单开</button>
     <button class="button solid" id="chest-ten" data-action="open-ten">十连</button>
   </div>
   <p class="panel-hint" id="chest-hint" role="status"></p>
+</section>
+<section data-panel="shop" hidden>
+  <div class="panel-heading"><h2>化石商店</h2></div>
+  <div class="chest-balances"><span>化石 <strong id="shop-fossils"></strong></span></div>
+  <p class="panel-desc">选用一件增益，下次单人开跑时消耗。</p>
+  <ul class="shop-items" id="shop-items"></ul>
+  <p class="panel-hint" id="shop-hint" role="status"></p>
+</section>
+<section data-panel="settings" hidden>
+  <div class="panel-heading"><h2>设置</h2></div>
+  <div class="audio-settings">
+    <fieldset>
+      <legend>背景音乐</legend>
+      <label class="audio-toggle"><input id="music-enabled" type="checkbox"> 播放背景音乐</label>
+      <label class="volume-field"><span>音乐音量</span><input id="music-volume" type="range" min="0" max="100" value="40"><output id="music-percent" for="music-volume">40%</output></label>
+    </fieldset>
+    <fieldset>
+      <legend>游戏音效</legend>
+      <label class="audio-toggle"><input id="effects-enabled" type="checkbox"> 播放游戏音效</label>
+      <label class="volume-field"><span>音效音量</span><input id="effects-volume" type="range" min="0" max="100" value="72"><output id="effects-percent" for="effects-volume">72%</output></label>
+    </fieldset>
+  </div>
 </section>
 <section data-panel="guide" hidden>
   <div class="panel-heading"><h2>首领练习</h2></div>
@@ -81,8 +104,8 @@
 <button class="button solid" id="practice-retry" data-action="practice-retry" hidden>再挑战一次</button></div></section><section data-panel="results" hidden=""><div class="panel-heading"><h2>竞速成绩</h2></div><p class="panel-desc" id="results-summary"></p><ol id="result-roster" class="room-roster results-roster"></ol><div class="panel-actions"><button class="button" data-action="leave-room">离开房间</button><button class="button solid" id="rematch-button" data-action="rematch" hidden="">回到房间</button></div></section><section data-panel="error" hidden=""><div class="panel-heading"><h2>连接中断</h2></div><p class="panel-desc" id="connection-error"></p><div class="panel-actions"><button class="button solid" data-action="online">返回联机菜单</button></div></section></dialog><output id="toast" class="toast" aria-live="polite" hidden=""></output></div>
   <noscript>请开启 JavaScript 来运行 DINO DASH。</noscript>
   <script type="module">
-    import { mount } from "./game/app.js?v=5";
-    import { PeerTransport } from "./game/peer-transport.js?v=5";
+    import { mount } from "./game/app.js?v=6";
+    import { PeerTransport } from "./game/peer-transport.js?v=6";
     const server = document.documentElement.dataset.roomBackend === "server";
     mount(document.querySelector(".game-app"), { roomTransport: server ? null : new PeerTransport() });
   </script>

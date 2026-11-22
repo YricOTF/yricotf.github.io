@@ -1,4 +1,4 @@
-import { POWERUPS } from "./challenge.js?v=5";
+import { POWERUPS } from "./challenge.js?v=6";
 
 export const SKINS = [
   { id: "classic", name: "原色暴龙", item: "石墨色与方形长吻", species: "rex", body: "#383937", detail: "#525350", cost: 0 },
@@ -25,7 +25,15 @@ export const ACCESSORIES = [
 ];
 
 export const WARDROBE = [...SKINS, ...ACCESSORIES];
-export const CHEST_COST = 12;
+export const CHEST_COST = 120;
+export const OPENING_BOOSTS = {
+  magnet: { ...POWERUPS.magnet, cost: 180, effects: { magnet: POWERUPS.magnet.duration } },
+  shield: { ...POWERUPS.shield, cost: 220, effects: { shield: POWERUPS.shield.duration } },
+  amber: { ...POWERUPS.amber, cost: 240, effects: { amber: POWERUPS.amber.duration } },
+  feather: { ...POWERUPS.feather, cost: 180, effects: { feather: POWERUPS.feather.duration } },
+  trail: { name: "化石寻迹", cost: 360, effects: { magnet: 8, amber: 8 } },
+  scout: { name: "岩翼护航", cost: 420, effects: { shield: 18, feather: 10 } },
+};
 const LEGACY_GEAR = new Set(["cap", "visor", "crown", "scarf"]);
 const skins = new Map(SKINS.map(item => [item.id, item]));
 const gear = new Map(ACCESSORIES.map(item => [item.id, item]));
@@ -83,7 +91,17 @@ export function chestPrice(profile, count) {
   return (count - (profile.chestOpened ? 0 : 1)) * CHEST_COST;
 }
 
-const BOOSTS = Object.keys(POWERUPS);
+export function buyOpeningBoost(profile, id) {
+  if (!Object.hasOwn(OPENING_BOOSTS, id)) return false;
+  const { cost } = OPENING_BOOSTS[id];
+  const stock = profile.boosts[id] || 0;
+  if (stock >= 9999 || profile.fossils < cost) return false;
+  profile.fossils -= cost;
+  profile.boosts[id] = stock + 1;
+  return true;
+}
+
+const BOOSTS = Object.keys(OPENING_BOOSTS);
 const randomUnit = () => crypto.getRandomValues(new Uint32Array(1))[0] / 4294967296;
 
 function chestReward(profile, roll) {
