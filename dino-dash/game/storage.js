@@ -1,6 +1,6 @@
-import { POWERUPS } from "./challenge.js?v=4";
-import { loadRun } from "./runner.js?v=4";
-import { ACCESSORIES, restoreRewards, SKINS, WARDROBE, unpackLook } from "./catalog.js?v=4";
+import { POWERUPS } from "./challenge.js?v=5";
+import { loadRun } from "./runner.js?v=5";
+import { ACCESSORIES, restoreRewards, SKINS, WARDROBE, unpackLook } from "./catalog.js?v=5";
 
 const KEY = "dino-dash.save.v1";
 
@@ -45,6 +45,7 @@ export function normalizeSave(raw) {
   return {
     version: 2,
     best: points(data.best),
+    bestScore: points(data.bestScore),
     total: points(data.total),
     fossils: points(data.fossils),
     unlocked: skins,

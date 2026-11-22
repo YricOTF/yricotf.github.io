@@ -1,8 +1,12 @@
-export const BIOME_LENGTH = 400;
+import { improveRewardTrail, layoutGroup, LAYOUTS } from "./layouts.js?v=5";
+import { MAX_SOLO_SPEED } from "./movement.js?v=5";
+
+export const BIOME_LENGTH = 90 * MAX_SOLO_SPEED;
 const SHORT_BIOME_LENGTH = 230;
 export const GROUP_SPACING = 23;
 export const FIRST_GROUP = 25;
-export const biomeLength = (rules = 4, mode = "solo") => rules < 4 || mode === "race" ? SHORT_BIOME_LENGTH : BIOME_LENGTH;
+export const biomeLength = (rules = 5, mode = "solo") => rules >= 5 ? (mode === "race" ? 650 : BIOME_LENGTH)
+  : rules < 4 || mode === "race" ? SHORT_BIOME_LENGTH : 400;
 export const BIOMES = [
   { id: "wild", name: "荒野", obstacles: ["cactus", "boulder", "straight", "ridge", "orbit"],
     ground: "#d7d8cf", road: "#d0d2c7", shoulder: "#b9bcae", line: "#a1a695", fog: [0.94, 0.94, 0.92] },
@@ -22,7 +26,8 @@ export function hash(seed, index) {
 export const trackDistance = (seed, index) => FIRST_GROUP + index * GROUP_SPACING + (index ? hash(seed, index * 11) * 3 : 0);
 
 const maps = new Map();
-export function biomeAt(seed, distance, rules, mode) {
+export function biomeAt(seed, distance, rules = 5, mode = "solo") {
+  if (rules >= 5 && mode === "race") return BIOMES[Math.floor(hash(seed ^ 0x1842fc, 5) * BIOMES.length)];
   const section = Math.max(0, Math.floor(distance / biomeLength(rules, mode)));
   if (section < 3) return BIOMES[section];
   let order = maps.get(seed);
@@ -65,8 +70,9 @@ export function rideLength(kind) {
   return kind === "vine" ? 11 : 12.8;
 }
 
-export function rideHeight(kind, position) {
+export function rideHeight(kind, position, rules = 5) {
   const progress = bound(position, 0, 1);
+  if (rules >= 5 && kind === "vine") return (1.08 + 1.27 * Math.sin(Math.PI * progress)) * bound((1 - progress) * 4.5, 0, 1);
   return kind === "vine" ? 1.18 + Math.sin(Math.PI * progress) * 1.5 : 0.73 + Math.sin(Math.PI * progress) * 0.12;
 }
 
@@ -89,7 +95,7 @@ export function courseGroup(seed, index, mode, distance, roll, powerIds, rules) 
   if (roll(2) >= 0.5) order.reverse();
   const first = index === 0 ? 1 : order[0];
   const second = order.find(lane => lane !== first);
-  let kind = index < 2 ? (roll(3) < 0.5 ? "cactus" : "boulder")
+  let kind = index < 2 && (rules < 5 || biome.id === "wild") ? (roll(3) < 0.5 ? "cactus" : "boulder")
     : pool[Math.floor(roll(3) * pool.length)];
   if (biome.id === "wild") {
     if (index === 2) kind = "straight";
@@ -97,7 +103,8 @@ export function courseGroup(seed, index, mode, distance, roll, powerIds, rules) 
     if (index === 4 || index > 5 && roll(10) > 0.88) kind = "meteor";
   }
   if (terrain) {
-    const rideIndex = Math.ceil((start + 86 - FIRST_GROUP) / GROUP_SPACING) + Math.floor(hash(seed ^ 0x4bc10, zone) * 2);
+    const rideOffset = rules >= 5 && mode === "solo" ? 685 : 86;
+    const rideIndex = Math.ceil((start + rideOffset - FIRST_GROUP) / GROUP_SPACING) + Math.floor(hash(seed ^ 0x4bc10, zone) * 2);
     if (index === rideIndex) kind = biome.id === "jungle" ? "vine" : "minecart";
     if (biome.id === "cave" && index === rideIndex + 3 && hash(seed ^ 0x76acf, zone) > 0.55) kind = "cart";
   } else if (rules === 3) {
@@ -105,6 +112,11 @@ export function courseGroup(seed, index, mode, distance, roll, powerIds, rules) 
     if (biome.id === "cave" && (local < 30 || index % 4 === 2)) kind = "minecart";
   }
   const special = kind === "vine" || kind === "minecart";
+  const layoutShift = Math.floor(hash(seed ^ 0x5ceee2, zone) * LAYOUTS.length);
+  if (rules >= 5 && !special && index >= 6 && index % 3 === 0 && local > 32 && local < length - 30) {
+    const layout = LAYOUTS[(Math.floor(index / 3) - 2 + layoutShift) % LAYOUTS.length];
+    return layoutGroup(index, distance, mode, biome.id, roll, layout);
+  }
   const obstacles = [{ id: `${index}a`, kind, d: distance, lane: first, turn: roll(8) * Math.PI * 2, side: roll(6) < 0.5 ? -1 : 1 }];
   const doubleChance = kind === "meteor" ? 0.48 : terrain ? (local < 25 ? 0.28 : 0.85) : 0.70;
   if (index > 2 && !special && !isFlyer(kind) && roll(4) < doubleChance) {
@@ -122,7 +134,7 @@ export function courseGroup(seed, index, mode, distance, roll, powerIds, rules) 
     let y = 0.62;
     if (special) {
       offset = n === 0 ? -4.4 : (n - 1) * rideLength(kind) / 6 + 0.38;
-      y = n === 0 ? 1.08 : rideHeight(kind, offset / rideLength(kind)) + 0.68;
+      y = n === 0 ? 1.08 : rideHeight(kind, offset / rideLength(kind), rules) + 0.68;
     } else if (hop) {
       y += Math.sin(Math.PI * n / (coins - 1)) * 1.59;
     } else if (curved) {
@@ -135,5 +147,6 @@ export function courseGroup(seed, index, mode, distance, roll, powerIds, rules) 
     id: `${index}p`, kind: index === 1 ? "shield" : powerIds[Math.floor(roll(9) * powerIds.length)],
     lane: safe, d: distance - 2.5, y: 0.95,
   }] : [];
-  return { obstacles, fossils, powers };
+  const group = { obstacles, fossils, powers };
+  return rules >= 5 && !special ? improveRewardTrail(group, index, distance, mode, obstacles[0], safe) : group;
 }

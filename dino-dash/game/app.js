@@ -1,16 +1,16 @@
-import { biomeAt, BIOMES } from "./course.js?v=4";
-import { control, normalizeRaceRules, loadRun, newPractice, newRun, RACE_METRES, RACE_RULES, stepRun, tune } from "./runner.js?v=4";
-import { ACCESSORIES, chestPrice, fragmentBalance, openChests, owns, packLook, SKINS, unlock, unpackLook, WARDROBE } from "./catalog.js?v=4";
-import { BOSSES, POWERUPS } from "./challenge.js?v=4";
-import { Scene } from "./scene.js?v=4";
-import { normalizeSave, readSession, Save, writeSession } from "./storage.js?v=4";
+import { biomeAt, BIOMES } from "./course.js?v=5";
+import { control, normalizeRaceRules, loadRun, newPractice, newRun, RACE_METRES, RACE_RULES, runScore, stepRun, tune } from "./runner.js?v=5";
+import { ACCESSORIES, chestPrice, fragmentBalance, openChests, owns, packLook, SKINS, unlock, unpackLook, WARDROBE } from "./catalog.js?v=5";
+import { BOSSES, POWERUPS } from "./challenge.js?v=5";
+import { Scene } from "./scene.js?v=5";
+import { normalizeSave, readSession, Save, writeSession } from "./storage.js?v=5";
 import { RoomClient } from "./network.js";
 
 const RACE_SAVE = "dino-dash.race.v1";
 const CODE_FORMAT = /^[2-9A-HJ-NP-Z]{6}$/;
 const keys = {
   ArrowLeft: "left", KeyA: "left", ArrowRight: "right", KeyD: "right",
-  ArrowUp: "jump", Space: "jump", KeyW: "jump", ArrowDown: "slide", KeyS: "slide", KeyX: "strike",
+  ArrowUp: "jump", Space: "jump", KeyW: "jump", ArrowDown: "slide", KeyS: "slide",
 };
 const digits = (n, width = 2) => String(Math.floor(n)).padStart(width, "0");
 
@@ -47,7 +47,8 @@ class Sound {
       tick: [440, 440, 0.081], go: [600, 900, 0.148], unlock: [470, 920, 0.21],
       chain: [540, 1350, 0.21], ride: [325, 650, 0.16], feint: [205, 111, 0.12],
       power: [325, 960, 0.18], shield: [450, 185, 0.15], "boss-strike": [180, 710, 0.18],
-      "boss-clear": [490, 1170, 0.27], "boss-enter": [125, 340, 0.24],
+      "boss-clear": [490, 1170, 0.27], "boss-enter": [125, 340, 0.24], "boss-orb": [330, 960, 0.25],
+      skill: [435, 770, 0.11], "ride-clear": [590, 1120, 0.21],
     };
     const [start, end, time] = tones[which] || tones.tick;
     const ctx = this.context;
@@ -123,7 +124,7 @@ export function mount(root, { roomTransport = null } = {}) {
   let raceJournaled = "";
   let rivalModels = new Map();
   let particles = [];
-  let score = { distance: -1, fossils: -1 };
+  let score = { distance: -1, fossils: -1, points: -1 };
   const listeners = new AbortController();
   const on = (node, event, fn, opts = {}) => node.addEventListener(event, fn, { ...opts, signal: listeners.signal });
   const text = (id, value) => { if (nodes[id].textContent !== String(value)) nodes[id].textContent = value; };
@@ -150,6 +151,7 @@ export function mount(root, { roomTransport = null } = {}) {
   function updateMenu() {
     const profile = save.current;
     text("best-distance", digits(profile.best, 4));
+    text("best-score", `${digits(profile.bestScore)} 分`);
     text("fossil-total", digits(profile.fossils));
     text("skin-total", `${profile.unlocked.length + profile.accessories.length} / ${WARDROBE.length}`);
     for (const btn of buttons("continue")) if (btn.classList.contains("continue")) setHidden(btn, !profile.checkpoint);
@@ -222,15 +224,13 @@ export function mount(root, { roomTransport = null } = {}) {
     startAt = 0;
     goAt = 0;
     countdownNumber = 0;
-    score = { distance: -1, fossils: -1 };
+    score = { distance: -1, fossils: -1, points: -1 };
     particles = [];
     feedbackUntil = 0;
     paused = false;
     show("run-feedback", false);
     show("countdown", false);
     show("boss-hud", false);
-    show("strike-controls", false);
-    show("strike-key", false);
     show("biome-title", false);
     clearTimeout(biomeTimer);
     currentBiome = "";
@@ -322,6 +322,7 @@ export function mount(root, { roomTransport = null } = {}) {
   function endSolo() {
     const distance = Math.floor(run.distance);
     const gain = run.fossils;
+    const points = runScore(run);
     paused = true;
     pausedAt = performance.now();
     show("practice-retry", run.practice);
@@ -333,9 +334,12 @@ export function mount(root, { roomTransport = null } = {}) {
       text("end-summary", run.won ? `已击败${BOSSES[practiceIndex].name}。` : `首领剩余 ${run.boss.hp} 格生命。`);
     } else {
       let record = false;
+      let scoreRecord = false;
       save.change(profile => {
         record = distance > profile.best;
+        scoreRecord = points > profile.bestScore;
         profile.best = Math.max(distance, profile.best);
+        profile.bestScore = Math.max(points, profile.bestScore);
         profile.total += distance;
         profile.fossils += gain;
         profile.checkpoint = null;
@@ -344,8 +348,10 @@ export function mount(root, { roomTransport = null } = {}) {
       nodes["end-distance"].parentElement.hidden = false;
       text("end-distance", distance);
       const wins = run.bossWins ? ` · 击败 ${run.bossWins} 位首领` : "";
-      text("end-summary", `收集 ${gain} 金币${wins}${record ? " · 刷新了单人纪录！" : ""}`);
+      const newRecord = record && scoreRecord ? " · 里程和分数新纪录" : record ? " · 里程新纪录" : scoreRecord ? " · 分数新纪录" : "";
+      text("end-summary", `收集 ${gain} 枚化石${wins}${newRecord}`);
     }
+    text("end-score", `${points} 分`);
     updateMenu();
     openPanel("end");
   }
@@ -554,10 +560,11 @@ export function mount(root, { roomTransport = null } = {}) {
   function renderSave() {
     const profile = save.current;
     text("save-best", `${profile.best} m`);
+    text("save-best-score", `${profile.bestScore} 分`);
     text("save-total", `${profile.total} m`);
     text("save-fossils", `${profile.fossils} 枚`);
     text("save-checkpoint", profile.checkpoint ? `${Math.floor(profile.checkpoint.distance)} m` : "暂无");
-    text("save-description", save.available ? "成绩、金币和装扮会自动保存到当前浏览器。" : "浏览器存储不可用。可以导出本次会话的备份。");
+    text("save-description", save.available ? "成绩、化石和装扮会自动保存到当前浏览器。" : "浏览器存储不可用。可以导出本次会话的备份。");
   }
 
   function exportSave() {
@@ -626,15 +633,12 @@ export function mount(root, { roomTransport = null } = {}) {
     text("online-hint", which === "create" ? "正在创建房间…" : "正在加入房间…");
     try {
       const options = { code: which === "join" ? code : undefined, name, skin: currentLook(), rules: RACE_RULES };
-      try {
-        await client.enter(which, options);
-      } catch (error) {
-        if (which !== "join" || error.status !== 409 || !error.message.includes("新版赛道")) throw error;
+      for (const rules of [RACE_RULES, 4, 3, 2]) {
         try {
-          await client.enter(which, { ...options, rules: 3 });
-        } catch (legacyError) {
-          if (legacyError.status !== 409 || !legacyError.message.includes("新版赛道")) throw legacyError;
-          await client.enter(which, { ...options, rules: 2 });
+          await client.enter(which, { ...options, rules });
+          break;
+        } catch (error) {
+          if (which !== "join" || rules === 2 || error.status !== 409 || !error.message.includes("新版赛道")) throw error;
         }
       }
       text("online-hint", "");
@@ -857,7 +861,7 @@ export function mount(root, { roomTransport = null } = {}) {
     show("countdown", false);
     show("run-feedback", false);
     const place = sorted.findIndex(player => player.id === room.self);
-    text("results-summary", `第 ${place + 1} 名 · 本轮收集 ${run.fossils} 金币`);
+    text("results-summary", `第 ${place + 1} 名 · ${runScore(run)} 分 · ${run.fossils} 枚化石`);
     const signature = JSON.stringify(sorted.map(p => [p.id, p.finish, p.distance, p.name, p.skin]));
     if (signature !== resultSignature) {
       const rows = sorted.map((player, index) => playerRow(player,
@@ -961,9 +965,10 @@ export function mount(root, { roomTransport = null } = {}) {
     }
   }
 
-  function runEvent(event) {
+  function runEvent(event, points) {
     sound.play(event);
-    if (event === "fossil" || event === "chain" || event === "ride") {
+    if (["skill", "chain", "ride-clear", "boss-strike"].includes(event) && Number.isFinite(points)) feedback(`+${points} 分`, 830);
+    if (["fossil", "chain", "ride", "ride-clear", "boss-orb"].includes(event)) {
       for (let i = 0; i < (event === "chain" ? 18 : 7); i++) {
         particles.push({
           x: run.x, y: run.y + 0.8, z: -0.21,
@@ -1029,8 +1034,6 @@ export function mount(root, { roomTransport = null } = {}) {
     const state = run.boss;
     const active = !!state;
     show("boss-hud", active);
-    show("strike-controls", active);
-    show("strike-key", active);
     if (active) {
       const label = `${state.index}:${state.phase}:${state.hp}:${state.lanes.join(",")}:${state.weakLane}`;
       if (label === bossHudKey) return;
@@ -1039,7 +1042,6 @@ export function mount(root, { roomTransport = null } = {}) {
       text("boss-name", boss.name);
       text("boss-count", `${state.hp} / ${boss.hp}`);
       nodes["boss-hud"].dataset.phase = state.phase;
-      nodes["strike-button"].disabled = state.phase !== "exposed";
       nodes["boss-health"].replaceChildren(...Array.from({ length: boss.hp }, (_, i) => {
         const segment = document.createElement("i");
         if (i < state.hp) segment.className = "active";
@@ -1061,11 +1063,13 @@ export function mount(root, { roomTransport = null } = {}) {
   }
 
   function updateHud() {
-    const distance = Math.floor(run.distance);
+    const distance = run.practice ? 0 : Math.floor(run.distance);
+    const points = runScore(run);
     if (distance !== score.distance) text("run-distance", digits(distance, 4));
     if (run.fossils !== score.fossils) text("run-fossils", digits(run.fossils));
+    if (points !== score.points) text("run-score", digits(points));
     updateChallengeHud();
-    score = { distance, fossils: run.fossils };
+    score = { distance, fossils: run.fossils, points };
   }
 
   function animate(now) {

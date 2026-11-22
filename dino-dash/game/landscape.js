@@ -1,4 +1,5 @@
-import { hash } from "./course.js?v=4";
+import { hash } from "./course.js?v=5";
+import { VINE_GAP_END, VINE_GAP_START, VINE_GRIP } from "./movement.js?v=5";
 
 const sides = [-1, 1];
 
@@ -10,11 +11,17 @@ function fern(scene, x, z, scale) {
   }
 }
 
-export function vineTree(scene, x, z, side, grip = null) {
+export function vineTree(scene, x, z, side, grip = null, modern = true) {
   const root = side * Math.max(5.85, Math.abs(x) + 2.55);
   const anchor = 6.35;
-  scene.box(x, 0.013, z - 2.35, 2.92, 0.037, 5.85, "#405348");
-  for (const edge of sides) scene.box(x, 0.038, z - 2.35 + edge * 2.84, 2.96, 0.074, 0.27, "#798b72");
+  if (modern) {
+    const middle = (VINE_GAP_START + VINE_GAP_END) / 2;
+    ravine(scene, x, z - middle, VINE_GAP_END - VINE_GAP_START, true);
+    scene.box(x, 0.025, z + 3.6, 2.14, 0.05, 0.16, "#859178");
+  } else {
+    scene.box(x, 0.013, z - 2.35, 2.92, 0.037, 5.85, "#405348");
+    for (const edge of sides) scene.box(x, 0.038, z - 2.35 + edge * 2.84, 2.96, 0.074, 0.27, "#798b72");
+  }
   scene.jungleTree(root, z - 0.29, 6.95, side > 0);
   scene.box(root, 0.29, z + 0.03, 1.7, 0.57, 1.21, "#646c56");
   const reach = root - x;
@@ -23,7 +30,7 @@ export function vineTree(scene, x, z, side, grip = null) {
   scene.box(x + reach * 0.35, anchor + 0.97, z - 0.12, Math.abs(reach) * 0.73 + 0.43, 0.38, 1.42, "#899b80");
   scene.box(x, anchor - 0.02, z, 0.37, 0.34, 0.43, "#758168");
 
-  const tip = grip || { y: 1.44, z: z + 0.18 };
+  const tip = grip || { y: modern ? VINE_GRIP : 1.44, z: z + (modern ? 1.1 : 0.18) };
   const links = grip ? 18 : 12;
   for (let i = 0; i < links; i++) {
     const t = (i + 0.5) / links;
@@ -31,6 +38,70 @@ export function vineTree(scene, x, z, side, grip = null) {
       0.15, Math.abs(tip.y - anchor) / links + 0.13, Math.abs(tip.z - z) / links + 0.16, i % 2 ? "#55654c" : "#748969");
   }
   scene.box(x, tip.y, tip.z, 0.4, 0.18, 0.28, "#aebfa3");
+}
+
+export function ravine(scene, x, z, length, forest = false) {
+  scene.box(x, -1.62, z, 3.03, 0.14, length, forest ? "#3f5148" : "#3d4945");
+  for (const side of sides) {
+    scene.box(x + side * 1.445, -0.78, z, 0.14, 1.54, length, forest ? "#67775e" : "#626e67");
+    scene.box(x, -0.75, z + side * length / 2, 2.99, 1.48, 0.14, forest ? "#788469" : "#737c72");
+    scene.box(x + side * 0.11, 0.038, z + side * (length / 2 + 0.16), 2.75, 0.076, 0.28, forest ? "#8e9b7b" : "#9f9b86");
+    scene.box(x + side * 1.13, -0.12, z + side * 0.61, 0.53, 0.46, 0.78, forest ? "#697b62" : "#777f71");
+  }
+}
+
+export function courseLandmark(scene, form, z, biome) {
+  const tint = biome.id === "cave" ? "#78827b" : biome.id === "jungle" ? "#869078" : "#9a9c8b";
+  const cap = biome.id === "cave" ? "#a3a08a" : biome.id === "jungle" ? "#a1a78c" : "#b2b2a0";
+  const pillar = (x, offset, height) => {
+    scene.box(x, height / 2, z + offset, 0.82, height, 0.91, tint);
+    scene.box(x, height, z + offset, 1.08, 0.31, 1.18, cap);
+    scene.box(x, 0.18, z + offset, 1.28, 0.36, 1.38, tint);
+  };
+  switch (form.id) {
+    case "arch":
+      for (const side of sides) {
+        pillar(side * 5.53, 0, 4.8);
+        scene.box(side * 4.73, 5.29, z, 2.22, 0.85, 0.92, tint);
+        scene.box(side * 3.67, 5.87, z, 2.31, 0.68, 0.97, tint);
+      }
+      scene.box(0, 6.39, z, 6.28, 0.62, 0.9, cap);
+      break;
+    case "underpass":
+      for (const side of sides) {
+        pillar(side * 5.51, 4.0, 3.5);
+        pillar(side * 5.51, -4.0, 3.45);
+        scene.box(side * 5.51, 3.29, z, 0.33, 0.32, 8.68, cap);
+      }
+      break;
+    case "slalom":
+      for (let i = 0; i < 4; i++) {
+        const x = form.side * (i < 2 ? 5.56 : -5.56);
+        pillar(x, 10 - i * 6.2, 1.37 + (i % 2) * 0.58);
+      }
+      break;
+    case "double":
+      for (const side of sides) {
+        scene.rock(side * 6.16, z + 3.8, 1.20, true);
+        scene.rock(side * 6.47, z - 3.4, 1.53, true);
+        scene.box(side * 6.02, 0.21, z, 1.05, 0.42, 7.6, cap);
+      }
+      break;
+    case "ravine":
+      for (const side of sides) {
+        pillar(side * 5.62, 3.15, 1.1);
+        pillar(side * 5.62, -3.15, 1.1);
+        scene.box(side * 5.64, 0.86, z, 0.18, 0.24, 6.53, cap);
+      }
+      break;
+    case "gates":
+      for (const side of sides) {
+        pillar(side * 5.63, 6.6, 4.22);
+        pillar(side * 5.63, -6.6, 4.22);
+        scene.box(side * 4.79, 4.83, z + side * 6.6, 2.34, 0.52, 1.33, cap);
+      }
+      break;
+  }
 }
 
 export function mountainPortal(scene, z, roof, seed) {

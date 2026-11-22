@@ -255,6 +255,9 @@ kbd.space-key { min-width: 30px; font-size: 0.72rem; }
 .hud-item small { font: 700 0.76rem/1 var(--mono); color: #646858; }
 .hud-item .icon { width: 12px; height: 12px; }
 .hud-fossils { min-width: 75px; }
+.hud-score { min-width: 82px; }
+.best-score { margin-top: 4px; color: #565d50; font: 600 .77rem/1.35 var(--mono); }
+.end-score { margin: 9px 0 3px; color: #353b32; font: 1.52rem/1.2 var(--pixel); }
 .hud .square-button { pointer-events: auto; }
 .race-status { max-width: 178px; width: 100%; }
 #race-clock { margin: 2px 0; font-family: var(--mono); color: #252622; }
@@ -434,6 +437,7 @@ kbd.space-key { min-width: 30px; font-size: 0.72rem; }
   .hud-item > strong { font-size: 1.35rem; }
   .hud-item small { font-size: 0.65rem; }
   .hud-fossils { min-width: 48px; }
+  .hud-score { min-width: 54px; }
   .race-status { max-width: 122px; }
   #race-standings { font-size: 0.69rem; }
   .panel { padding: 21px 16px; }
@@ -505,10 +509,6 @@ kbd.space-key { min-width: 30px; font-size: 0.72rem; }
 .power-chip { display: inline-flex; gap: 5px; align-items: center; border: 1px solid #b4bcae; color: var(--ink); background: #f0f2e8; padding: 3px 6px; font-size: 0.84rem; font-weight: 650; }
 .power-chip b, .power-symbol { display: inline-grid; place-items: center; width: 24px; height: 24px; background: #353931; color: #f5f7ea; font-size: 0.8rem; font-weight: 700; line-height: 1; }
 .power-chip span { font: 700 0.79rem/1 var(--mono); }
-.strike-controls { position: absolute; left: 50%; bottom: 34px; transform: translateX(-50%); }
-.strike-controls .button { min-height: 44px; touch-action: none; }
-.strike-controls .button:disabled { color: #545a50; background: #e1e5da; border-color: #a5ad9b; }
-.strike-controls kbd { margin: 0; }
 
 .panel:has([data-panel="closet"]:not([hidden])) { width: min(850px, calc(100% - 32px)); }
 .panel:has([data-panel="guide"]:not([hidden])) { width: min(732px, calc(100% - 32px)); }
@@ -588,7 +588,6 @@ kbd.space-key { min-width: 30px; font-size: 0.72rem; }
   .boss-hud > .boss-status > strong { font-size: 0.92rem; }
   .power-hud { top: 64px; left: 10px; }
   .play-stage:has(.boss-hud:not([hidden])) .power-hud { top: 142px; }
-  .strike-controls .button { gap: 4px; padding-inline: 9px; }
   .run-feedback { bottom: 80px; }
   .closet-layout { grid-template-columns: 1fr; gap: 8px; }
   .closet-preview { min-height: 153px; }
@@ -599,10 +598,6 @@ kbd.space-key { min-width: 30px; font-size: 0.72rem; }
 @media (pointer: coarse) {
   .touch-controls { bottom: max(11px, calc(env(safe-area-inset-bottom) + 6px)); left: max(10px, env(safe-area-inset-left)); right: max(10px, env(safe-area-inset-right)); }
   .touch-controls button { width: clamp(38px, 12vw, 54px); height: clamp(44px, 12vw, 53px); }
-  .strike-controls { bottom: max(11px, calc(env(safe-area-inset-bottom) + 6px)); }
-  .strike-controls .button { height: 49px; }
-  .strike-controls kbd { display: none; }
-  .play-stage:has(.strike-controls:not([hidden])) .run-feedback { bottom: max(75px, calc(env(safe-area-inset-bottom) + 62px)); }
 }
 
 .play-sky::before, .play-sky::after { content: ""; position: absolute; inset: 0; opacity: 0; transition: opacity 650ms ease; }

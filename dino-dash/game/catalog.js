@@ -1,4 +1,4 @@
-import { POWERUPS } from "./challenge.js?v=4";
+import { POWERUPS } from "./challenge.js?v=5";
 
 export const SKINS = [
   { id: "classic", name: "原色暴龙", item: "石墨色与方形长吻", species: "rex", body: "#383937", detail: "#525350", cost: 0 },
