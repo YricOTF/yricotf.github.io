@@ -123,7 +123,7 @@
 <button class="button solid" id="practice-retry" data-action="practice-retry" hidden>再挑战一次</button></div></section><section data-panel="results" hidden=""><div class="panel-heading"><h2>竞速成绩</h2></div><p class="panel-desc" id="results-summary"></p><ol id="result-roster" class="room-roster results-roster"></ol><div class="panel-actions"><button class="button" data-action="leave-room">离开房间</button><button class="button solid" id="rematch-button" data-action="rematch" hidden="">回到房间</button></div></section><section data-panel="error" hidden=""><div class="panel-heading"><h2>连接中断</h2></div><p class="panel-desc" id="connection-error"></p><div class="panel-actions"><button class="button solid" data-action="online">返回联机菜单</button></div></section></dialog><output id="toast" class="toast" aria-live="polite" hidden=""></output></div>
   <noscript>请开启 JavaScript 来运行 DINO DASH。</noscript>
   <script type="module">
-    import { mount } from "./game/app.js?v=8";
+    import { mount } from "./game/app.js?v=9";
     import { PeerTransport } from "./game/peer-transport.js?v=6";
     const server = document.documentElement.dataset.roomBackend === "server";
     mount(document.querySelector(".game-app"), { roomTransport: server ? null : new PeerTransport() });

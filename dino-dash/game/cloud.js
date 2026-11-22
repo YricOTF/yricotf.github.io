@@ -1,4 +1,4 @@
-import { cloudConfig } from "./cloud-config.js?v=7";
+import { cloudConfig } from "./cloud-config.js?v=9";
 import { hashMoves, REPLAY_VERSION } from "./replay.js?v=7";
 
 const SESSION_KEY = "dino-dash.cloud.v1";
@@ -109,6 +109,18 @@ export class Cloud {
 
   board() {
     return this.fetch("/rest/v1/rpc/dino_leaderboard", {});
+  }
+
+  async signupOpen() {
+    if (!this.enabled || !this.captchaSiteKey) return false;
+    const response = await fetch(this.url + "/auth/v1/settings", {
+      headers: { apikey: this.key },
+      cache: "no-store",
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!response.ok) return false;
+    const settings = await response.json();
+    return settings?.disable_signup === false && settings.external?.anonymous_users === true;
   }
 
   async start() {

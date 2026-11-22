@@ -6,7 +6,7 @@ import { Scene } from "./scene.js?v=6";
 import { normalizeSave, readSession, Save, writeSession } from "./storage.js?v=6";
 import { RoomClient } from "./network.js";
 import { Sound } from "./audio.js?v=6";
-import { Cloud } from "./cloud.js?v=7";
+import { Cloud } from "./cloud.js?v=9";
 import { HumanCheck } from "./human-check.js?v=7";
 import { MAX_MOVES, MOVES_PER_TICK, PROOF_INTERVAL, RANK_MOVES, RANK_STEP, RANK_TICKS } from "./replay.js?v=7";
 
@@ -49,6 +49,7 @@ export function mount(root, { roomTransport = null } = {}) {
   let run = null;
   let ranked = null;
   let rankRequest = 0;
+  let rankSignupOpen = null;
   let cloudTimer;
   let captchaToken = "";
   let race = null;
@@ -166,10 +167,10 @@ export function mount(root, { roomTransport = null } = {}) {
     const verify = cloud.enabled && !cloud.joined && panel === "rank";
     show("rank-human-check", verify);
     if (verify && !captchaToken) nodes["rank-join"].disabled = true;
-    if (verify && cloud.captchaSiteKey) void humanCheck.show(cloud.captchaSiteKey);
+    if (verify && rankSignupOpen) void humanCheck.show(cloud.captchaSiteKey);
     else {
       humanCheck.hide();
-      if (verify) text("rank-captcha-status", "真人验证尚未开通。");
+      if (verify) text("rank-captcha-status", rankSignupOpen === null ? "正在检查排位开放状态…" : "排位注册尚未开放。");
     }
   }
 
@@ -179,6 +180,13 @@ export function mount(root, { roomTransport = null } = {}) {
     if (!cloud.enabled) {
       text("rank-status", "排行榜待开通。仍可正常游玩单人和联机。");
       return;
+    }
+    if (!cloud.joined) {
+      void cloud.signupOpen().catch(() => false).then(open => {
+        if (request !== rankRequest || panel !== "rank") return;
+        rankSignupOpen = open;
+        rankControls();
+      });
     }
     nodes["rank-name"].value ||= save.current.nick;
     text("rank-status", "正在读取云端成绩…");
@@ -203,7 +211,7 @@ export function mount(root, { roomTransport = null } = {}) {
 
   async function joinRank() {
     const button = nodes["rank-join"];
-    if (button.disabled) return;
+    if (button.disabled || !rankSignupOpen) return;
     button.disabled = true;
     text("rank-status", "正在创建本设备的玩家身份…");
     try {
