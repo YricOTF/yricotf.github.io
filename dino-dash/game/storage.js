@@ -1,5 +1,5 @@
-import { loadRun } from "./runner.js?v=11";
-import { ACCESSORIES, OPENING_BOOSTS, restoreRewards, SHARD_RECYCLE, SKINS, WARDROBE, unpackLook } from "./catalog.js?v=11";
+import { loadRun } from "./runner.js?v=12";
+import { ACCESSORIES, OPENING_BOOSTS, restoreRewards, SHARD_RECYCLE, SKINS, WARDROBE, unpackLook } from "./catalog.js?v=12";
 
 const KEY = "dino-dash.save.v1";
 
@@ -73,6 +73,7 @@ export function normalizeSave(raw) {
     audio: normalizeAudio(data.audio, data.sound !== false),
     nick: typeof data.nick === "string" ? Array.from(data.nick).slice(0, 16).join("") : "",
     checkpoint: loadRun(data.checkpoint),
+    lessons: ["river", "rail"].filter(kind => Array.isArray(data.lessons) && data.lessons.includes(kind)),
     races: Array.isArray(data.races) ? data.races.filter(v => typeof v === "string" && v.length <= 16).slice(-30) : [],
     savedAt: points(data.savedAt),
   };

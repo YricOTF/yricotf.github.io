@@ -1,4 +1,4 @@
-import { POWERUPS } from "./challenge.js?v=11";
+import { POWERUPS } from "./challenge.js?v=12";
 
 export const SKINS = [
   { id: "classic", name: "原色暴龙", item: "石墨色与方形长吻", species: "rex", body: "#383937", detail: "#525350", cost: 0 },
@@ -28,6 +28,14 @@ export const ACCESSORIES = [
   { id: "scarf", name: "格纹围巾", item: "宽格纹短围巾", slot: "neck", cost: 6 },
   { id: "pendant", name: "琥珀吊坠", item: "包裹化石的吊坠", slot: "neck", cost: 7 },
   { id: "ruff", name: "羽绒围领", item: "一圈灰白细羽", slot: "neck", cost: 8 },
+  { id: "wing-crest", name: "翼羽冠", item: "三枚翼羽向后展开", slot: "head", cost: 8 },
+  { id: "gem-goggles", name: "翠晶风镜", item: "两枚翠晶镜片", slot: "head", cost: 8 },
+  { id: "sun-hat", name: "沙原遮阳帽", item: "宽檐和琥珀色帽带", slot: "head", cost: 7 },
+  { id: "bone-mask", name: "化石面具", item: "带齿骨纹的面甲", slot: "head", cost: 9 },
+  { id: "fern-cloak", name: "蕨叶披肩", item: "颈后垂落的三道叶片", slot: "neck", cost: 8 },
+  { id: "shell-collar", name: "贝壳项圈", item: "沙色壳片串成的项圈", slot: "neck", cost: 7 },
+  { id: "river-band", name: "河纹领带", item: "蓝灰色布条和浅色河纹", slot: "neck", cost: 7 },
+  { id: "ore-charm", name: "矿晶护符", item: "由三枚小矿晶组成", slot: "neck", cost: 9 },
 ].map(item => ({ ...item, cost: item.cost * 2 }));
 
 export const WARDROBE = [...SKINS, ...ACCESSORIES];

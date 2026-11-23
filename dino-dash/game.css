@@ -546,7 +546,7 @@ kbd.space-key { min-width: 30px; font-size: 0.72rem; }
   display: block;
   width: 52px;
   height: 36px;
-  background-image: url("./icons/wardrobe.png?v=11");
+  background-image: url("./icons/wardrobe.png?v=12");
   background-repeat: no-repeat;
   background-size: var(--sheet-size, 1800%) 100%;
   background-position: var(--sheet-x, 0%) center;
@@ -718,3 +718,14 @@ kbd.space-key { min-width: 30px; font-size: 0.72rem; }
 .reward-icon[data-icon="flight"] { background: url("./icons/flight.png") center / contain no-repeat; }
 .reward-icon[data-icon="dash"] { background: url("./icons/dash.png") center / contain no-repeat; }
 .reward-icon[data-icon="fossil"] { background: url("./icons/fossil.png") center / contain no-repeat; }
+
+.rank-tabs { margin-bottom: 12px; }
+.rank-tabs [aria-pressed="true"] { border-color: #7b6a46; background: #f2e7c6; color: #493619; }
+.practice-heading { margin: 18px 0 8px; font-size: .95rem; }
+.lesson-hud {
+  position: absolute; z-index: 3; inset: auto 8px clamp(85px, 13vh, 126px);
+  width: max-content; max-width: calc(100% - 16px); margin-inline: auto; padding: 8px 13px;
+  text-align: center; font-size: .94rem; font-weight: 750; color: #2e3026;
+  background: #f7efda; border: 1px solid #91835e; box-shadow: 2px 2px #24271f66; pointer-events: none;
+}
+.boss-safety { display: block; margin: 3px 0; color: #5d4a25; font-size: .72rem; font-weight: 750; }

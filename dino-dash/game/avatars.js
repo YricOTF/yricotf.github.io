@@ -127,6 +127,32 @@ export function drawAccessories(box, fit, look) {
       box(0, top + 0.065, headZ, width + 0.05, 0.13, 0.39, "#4f5248");
       for (let i = 0; i < 4; i++) box(0.06 + i * 0.04, top + 0.23 + i * 0.09, headZ + i * 0.16, 0.46 - i * 0.079, 0.15, 0.35, i % 2 ? STONE : BONE);
       break;
+    case "wing-crest":
+      box(0, top + .06, headZ, width * .98, .12, .53, "#59676b");
+      for (const side of [-1, 0, 1]) {
+        for (let i = 0; i < 3; i++) box(side * width * .31, top + .22 + i * .12, headZ + i * .19,
+          .18, .22 - i * .033, .30, side ? "#9cb5b8" : "#d5ddd3");
+      }
+      break;
+    case "gem-goggles":
+      box(0, eye, headZ - .17, width * 1.14, .12, .52, "#314b44");
+      for (const side of [-1, 1]) {
+        box(side * width * .26, eye + .02, headZ - .44, width * .42, .30, .15, "#41695f");
+        box(side * width * .26, eye + .04, headZ - .53, width * .30, .19, .045, "#a9cabb");
+      }
+      break;
+    case "sun-hat":
+      box(0, top + .06, headZ, width * 1.43, .105, .91, "#a98c58");
+      box(0, top + .20, headZ, width * .79, .25, .58, "#ceb481");
+      box(0, top + .16, headZ - .03, width * .85, .079, .60, "#8a6143");
+      break;
+    case "bone-mask":
+      box(0, eye - .08, headZ - .41, width * .98, .32, .18, BONE);
+      for (const side of [-1, 1]) {
+        box(side * width * .30, eye + .09, headZ - .44, width * .25, .21, .20, STONE);
+        box(side * width * .33, eye - .27, headZ - .51, .11, .24, .12, "#dbd2b8");
+      }
+      break;
   }
   if (look.neck === "scarf") {
     box(0, neckY, neckZ, width * 0.91, 0.18, 0.71, BONE);
@@ -141,5 +167,23 @@ export function drawAccessories(box, fit, look) {
     for (const side of [-1, 1]) {
       for (let i = 0; i < 3; i++) box(side * width * 0.48, neckY - 0.109 + (i % 2) * 0.04, neckZ - 0.23 + 0.23 * i, 0.095, 0.24, 0.12, STONE);
     }
+  } else if (look.neck === "fern-cloak") {
+    box(0, neckY, neckZ, width, .17, .68, "#4c6551");
+    for (let i = 0; i < 4; i++) {
+      box(0, neckY - .17 * i, neckZ + .38 + i * .10, width * (1.15 - i * .18), .17, .27,
+        i % 2 ? "#72916f" : "#8aa681");
+    }
+  } else if (look.neck === "shell-collar") {
+    box(0, neckY + .04, neckZ, width * .91, .10, .69, "#716b56");
+    for (let i = -2; i <= 2; i++) box(i * width * .19, neckY - .07, neckZ - .35,
+      width * .16, .19 + (2 - Math.abs(i)) * .08, .11, i % 2 ? "#c7ae8d" : "#e2d0ad");
+  } else if (look.neck === "river-band") {
+    box(0, neckY, neckZ, width, .19, .76, "#587384");
+    box(0, neckY + .04, neckZ - .39, width * .97, .047, .04, "#b0c8cb");
+    box(width * .38, neckY - .21, neckZ + .36, .21, .31, .14, "#83a1a9");
+  } else if (look.neck === "ore-charm") {
+    box(0, neckY + .04, neckZ, width * .88, .08, .68, "#5a6064");
+    for (const i of [-1, 0, 1]) box(i * width * .16, neckY - .19, neckZ - .35,
+      .14, i ? .23 : .39, .13, i ? "#8fa0b6" : "#b3cbd9");
   }
 }

@@ -1,11 +1,11 @@
 import { biomeAt, biomeLength, BIOMES, flightPose, isFlyer } from "./course.js?v=10";
-import { ARENA_BOSS_DEPTH, ARENA_EXIT, ARENA_LEAD, arenaSites, runGroups, hash, LANES, clamp, tune, SOLO_RULES } from "./runner.js?v=11";
-import { skinInfo, unpackLook } from "./catalog.js?v=11";
-import { battleRoute, bossAttack, BOSSES, chargeDepth, impactTime, sweepDepth } from "./challenge.js?v=11";
-import { drawAccessories, drawSpecies, REX_FIT } from "./avatars.js?v=6";
+import { ARENA_BOSS_DEPTH, ARENA_EXIT, ARENA_LEAD, arenaSites, runGroups, hash, LANES, clamp, tune, STREAM_RULES } from "./runner.js?v=12";
+import { skinInfo, unpackLook } from "./catalog.js?v=12";
+import { battleRoute, bossAttack, BOSSES, chargeDepth, impactTime, sweepDepth } from "./challenge.js?v=12";
+import { drawAccessories, drawSpecies, REX_FIT } from "./avatars.js?v=12";
 import { arenaEntrance, courseLandmark, mountainPortal, ravine, sandstone, trackside, vineTree } from "./landscape.js?v=11";
 import { VINE_GAP_END, VINE_GAP_START } from "./movement.js?v=6";
-import { RIVER_RELEASE, RIVER_SWING, SECTION_RULES, sectionFossils, sectionsNear } from "./sections.js?v=10";
+import { RIVER_RELEASE, RIVER_SWING, SECTION_RULES, sectionFossils, sectionsNear } from "./sections.js?v=12";
 
 const FOG = [0.94, 0.94, 0.92];
 const colors = new Map();
@@ -922,7 +922,7 @@ export class Scene {
       const local = mapAt(spot);
       const detailed = z > -57;
       const edge = spot - 3.5;
-      const arena = run.rules < SOLO_RULES && (sites.some(site => spot >= site - ARENA_LEAD && spot <= site + ARENA_EXIT)
+      const arena = run.rules < STREAM_RULES && (sites.some(site => spot >= site - ARENA_LEAD && spot <= site + ARENA_EXIT)
         || !!run.boss?.pace && spot >= distance - run.boss.travel - ARENA_LEAD
         || !!run.bossExit && spot <= run.bossExit && spot >= run.bossExit - 170);
       const section = sections.find(item => item.start < edge + 7 && item.end > edge);
@@ -987,7 +987,7 @@ export class Scene {
       this.cloud((i % 2 ? -1 : 1) * (7 + offset), 8 + offset * 0.1, z, 2.0);
     }
 
-    const gates = run.rules >= SOLO_RULES ? [] : featured ? [...sites.map(site => site - ARENA_LEAD), run.bossExit].filter(Boolean)
+    const gates = run.rules >= STREAM_RULES ? [] : featured ? [...sites.map(site => site - ARENA_LEAD), run.bossExit].filter(Boolean)
       : sites.flatMap(site => [site - ARENA_LEAD, site + ARENA_EXIT]);
     for (const edge of gates) {
       const z = distance - edge;

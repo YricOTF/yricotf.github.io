@@ -1,3 +1,5 @@
+import { hash } from "./course.js?v=10";
+
 export const LANES = [-3, 0, 3];
 
 export const POWERUPS = {
@@ -31,18 +33,24 @@ export function chargeDepth(age, index = 0) {
   const nose = [3.25, 3.34, 2.68][index];
   return -15.7 + (15.7 - nose - 0.83) * (arrival ** 1.32) * (1 - retreat * retreat * (3 - 2 * retreat));
 }
-const waveFor = state => BOSSES[state.index].attacks[state.cycle % BOSSES[state.index].attacks.length];
+function waveFor(state) {
+  const waves = BOSSES[state.index].attacks;
+  const draw = state.patternSeed
+    ? Math.floor(hash(state.patternSeed ^ Math.imul(state.index + 1, 0xb436e2f9), state.cycle) * waves.length)
+    : state.cycle % waves.length;
+  return waves[draw];
+}
 
 export function bossAttack(state) {
   return waveFor(state)[state.beat || 0];
 }
 
-export function beginBoss(index, pace = 0, streaming = false) {
+export function beginBoss(index, pace = 0, streaming = false, patternSeed = 0) {
   return { index, hp: BOSSES[index].hp, phase: "intro", age: 0, cycle: 0, beat: 0,
-    retargeted: false, lanes: [], weakLane: 1, travel: 0, pace, streaming, strike: null, routeMask: 0, routeAge: 0, hitFrom: 0, hitY: 1 };
+    retargeted: false, lanes: [], weakLane: 1, travel: 0, pace, streaming, patternSeed, mercy: !!patternSeed, strike: null, routeMask: 0, routeAge: 0, hitFrom: 0, hitY: 1 };
 }
 
-export function restoreBoss(raw, distance, site, chase = false, streaming = false) {
+export function restoreBoss(raw, distance, site, chase = false, streaming = false, patternSeed = 0) {
   const spec = BOSSES[raw?.index];
   const start = chase && Number.isFinite(raw?.travel) ? distance - raw.travel : distance;
   if (!spec || !Number.isFinite(site) || (chase ? start + 0.01 < site : Math.abs(start - site) > 0.01) || !Object.hasOwn(PHASE_MAX, raw.phase)
@@ -53,9 +61,9 @@ export function restoreBoss(raw, distance, site, chase = false, streaming = fals
   const pace = chase && Number.isFinite(raw.pace) ? Math.max(15, Math.min(34, raw.pace)) : 0;
   const strike = streaming && [0, 1, 2].includes(raw.strike?.lane) && Number.isFinite(raw.strike.d)
     && Math.abs(raw.strike.d - distance) < 200 ? { d: raw.strike.d, lane: raw.strike.lane } : null;
-  return { ...beginBoss(raw.index, pace, streaming), strike, hp: raw.hp, phase: raw.phase, age: raw.age,
-    cycle: raw.cycle,
-    beat: raw.beat === 1 && BOSSES[raw.index].attacks[raw.cycle % BOSSES[raw.index].attacks.length].length > 1 ? 1 : 0,
+  const resumed = { ...beginBoss(raw.index, pace, streaming, patternSeed), cycle: raw.cycle };
+  return { ...resumed, strike, mercy: !!patternSeed && raw.mercy !== false, hp: raw.hp, phase: raw.phase, age: raw.age,
+    beat: raw.beat === 1 && waveFor(resumed).length > 1 ? 1 : 0,
     retargeted: raw.retargeted === true, lanes: [...new Set(raw.lanes)], weakLane: raw.weakLane,
     travel: Number.isFinite(raw.travel) ? Math.max(0, raw.travel) : 0,
     routeMask: Number.isInteger(raw.routeMask) ? raw.routeMask & 3 : 0,

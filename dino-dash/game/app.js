@@ -1,14 +1,15 @@
 import { biomeAt, BIOMES } from "./course.js?v=10";
-import { applyOpeningBoost, control, normalizeRaceRules, loadRun, newPractice, newRun, RACE_METRES, RACE_RULES, runScore, stepRun, tune } from "./runner.js?v=11";
-import { ACCESSORIES, buyOpeningBoost, chestPrice, OPENING_BOOSTS, fragmentBalance, openChests, owns, packLook, SKINS, unlock, unpackLook, WARDROBE } from "./catalog.js?v=11";
-import { BOSSES, POWERUPS } from "./challenge.js?v=11";
-import { Scene } from "./scene.js?v=11";
-import { normalizeSave, readSession, Save, writeSession } from "./storage.js?v=11";
-import { RoomClient } from "./network.js";
+import { applyOpeningBoost, control, normalizeRaceRules, loadRun, newPractice, newRun, newSectionPractice, RACE_METRES, RACE_RULES, runScore, stepRun, tune } from "./runner.js?v=12";
+import { ACCESSORIES, buyOpeningBoost, chestPrice, OPENING_BOOSTS, fragmentBalance, openChests, owns, packLook, SKINS, unlock, unpackLook, WARDROBE } from "./catalog.js?v=12";
+import { BOSSES, POWERUPS } from "./challenge.js?v=12";
+import { Scene } from "./scene.js?v=12";
+import { normalizeSave, readSession, Save, writeSession } from "./storage.js?v=12";
+import { RoomClient } from "./network.js?v=12";
 import { Sound } from "./audio.js?v=11";
-import { Cloud } from "./cloud.js?v=11";
+import { Cloud } from "./cloud.js?v=12";
 import { HumanCheck } from "./human-check.js?v=7";
-import { MAX_MOVES, MOVES_PER_TICK, PROOF_INTERVAL, RANK_MOVES, RANK_STEP, RANK_TICKS, RANK_RULES, REPLAY_VERSION } from "./replay.js?v=11";
+import { MAX_MOVES, MOVES_PER_TICK, PROOF_INTERVAL, RANK_MOVES, RANK_STEP, RANK_TICKS, RANK_RULES, REPLAY_VERSION } from "./replay.js?v=12";
+import { sectionLesson } from "./sections.js?v=12";
 
 const RACE_SAVE = "dino-dash.race.v1";
 const CODE_FORMAT = /^[2-9A-HJ-NP-Z]{6}$/;
@@ -49,6 +50,7 @@ export function mount(root, { roomTransport = null } = {}) {
   let run = null;
   let ranked = null;
   let rankRequest = 0;
+  let boardKind = "score";
   let rankSignupOpen = null;
   let cloudName = "";
   let accountSession = 0;
@@ -238,6 +240,13 @@ export function mount(root, { roomTransport = null } = {}) {
 
   async function refreshBoard() {
     const request = ++rankRequest;
+    const fossils = boardKind === "fossils";
+    for (const button of root.querySelectorAll("[data-board]")) button.setAttribute("aria-pressed", String(button.dataset.board === boardKind));
+    show("fossil-board-note", fossils);
+    show("rank-table", false);
+    show("rank-distance-col", !fossils);
+    text("rank-main-col", fossils ? "化石" : "分数");
+    nodes["rank-table"].setAttribute("aria-label", fossils ? "排位累计化石前 50 名" : "单人排位前 50 名");
     rankControls();
     if (!cloud.enabled) {
       text("rank-status", "排行榜待开通。仍可正常游玩单人和联机。");
@@ -252,11 +261,13 @@ export function mount(root, { roomTransport = null } = {}) {
     }
     text("rank-status", "正在读取云端成绩…");
     try {
-      const rows = await cloud.board();
+      const rows = await cloud.board(boardKind);
       if (request !== rankRequest || panel !== "rank") return;
       nodes["rank-rows"].replaceChildren(...rows.map(row => {
         const line = document.createElement("tr");
-        for (const value of [row.place, row.nick, row.score, `${row.distance} m`]) {
+        const values = [row.place, row.nick, fossils ? `${row.fossils} 枚` : row.score];
+        if (!fossils) values.push(`${row.distance} m`);
+        for (const value of values) {
           const cell = document.createElement("td");
           cell.textContent = value;
           line.append(cell);
@@ -264,7 +275,7 @@ export function mount(root, { roomTransport = null } = {}) {
         return line;
       }));
       show("rank-table", rows.length > 0);
-      text("rank-status", rows.length ? "已刷新" : "还没有通过校验的排位成绩。");
+      text("rank-status", rows.length ? "" : fossils ? "还没有可计入的排位化石。" : "还没有通过校验的排位成绩。");
     } catch (error) {
       if (request === rankRequest && panel === "rank") text("rank-status", error.status ? error.message : "无法连接排行榜，请重试。");
     }
@@ -373,6 +384,7 @@ export function mount(root, { roomTransport = null } = {}) {
     feedbackUntil = 0;
     paused = false;
     show("run-feedback", false);
+    show("lesson-hud", false);
     show("countdown", false);
     show("boss-hud", false);
     show("biome-title", false);
@@ -446,6 +458,14 @@ export function mount(root, { roomTransport = null } = {}) {
     beginSolo(encounter, 1620);
   }
 
+  function launchSectionPractice(kind) {
+    if (mode === "race" || client.session) return;
+    const practice = newSectionPractice(kind);
+    if (!practice) return;
+    if (mode === "solo") snapshotSolo();
+    beginSolo(practice, 1450);
+  }
+
   function pauseSolo() {
     if (mode !== "solo" || !run || run.done) return;
     if (!paused) {
@@ -453,7 +473,7 @@ export function mount(root, { roomTransport = null } = {}) {
       pausedAt = performance.now();
       snapshotSolo();
     }
-    text("pause-text", ranked ? "排位已暂停。退出会结束本轮。" : run.practice ? "首领练习已暂停。" : save.available ? "单人进度已保存。" : "本轮进度已暂停。浏览器存储暂不可用。");
+    text("pause-text", ranked ? "排位已暂停。退出会结束本轮。" : run.practice ? "练习已暂停。" : save.available ? "单人进度已保存。" : "本轮进度已暂停。浏览器存储暂不可用。");
     openPanel("pause");
   }
 
@@ -476,9 +496,11 @@ export function mount(root, { roomTransport = null } = {}) {
     show("rank-submit-status", !!ranked);
     if (run.practice) {
       text("end-title", run.won ? "挑战成功" : "挑战结束");
-      text("end-distance", run.boss.hp);
       nodes["end-distance"].parentElement.hidden = true;
-      text("end-summary", run.won ? `已击败${BOSSES[practiceIndex].name}。` : `首领剩余 ${run.boss.hp} 格生命。`);
+      if (run.practiceSection) {
+        const structure = run.practiceSection === "river" ? "藤蔓渡河" : "山洞矿车";
+        text("end-summary", run.won ? `已完成${structure}。` : `${structure}还可以再试一次。`);
+      } else text("end-summary", run.won ? `已击败${BOSSES[practiceIndex].name}。` : `首领剩余 ${run.boss.hp} 格生命。`);
     } else {
       let record = false;
       let scoreRecord = false;
@@ -1132,7 +1154,12 @@ export function mount(root, { roomTransport = null } = {}) {
         break;
       case "solo": if (ranked && panel === "end") void launchRanked(); else launchSolo(); break;
       case "new-solo": launchSolo(false, true); break;
-      case "practice-retry": launchPractice(practiceIndex); break;
+      case "practice-retry":
+        if (run?.practiceSection) launchSectionPractice(run.practiceSection);
+        else launchPractice(practiceIndex);
+        break;
+      case "practice-river": launchSectionPractice("river"); break;
+      case "practice-rail": launchSectionPractice("rail"); break;
       case "continue": launchSolo(true); break;
       case "pause": if (mode === "race") openPanel("leave"); else pauseSolo(); break;
       case "resume": resumeSolo(); break;
@@ -1210,8 +1237,12 @@ export function mount(root, { roomTransport = null } = {}) {
   }
 
   function runEvent(event, points) {
-    sound.play(event);
-    if (event === "section-enter") feedback(points === "river" ? "起跳接藤 · 变道再跳" : "矿车 · 变道选轨", 2100);
+    sound.play(event === "boss-save" ? "shield" : event);
+    if (event === "boss-save") feedback("已用掉本场容错", 1150);
+    if (event === "section-clear" && !ranked && !run.practice && run.mode === "solo" && !save.current.lessons.includes(points)) {
+      save.change(profile => { if (!profile.lessons.includes(points)) profile.lessons.push(points); });
+    }
+    if (event === "section-enter" && (ranked || run.mode === "race" || save.current.lessons.includes(points))) feedback(points === "river" ? "起跳接藤 · 变道再跳" : "矿车 · 变道选轨", 2100);
     if (["skill", "chain", "ride-clear", "boss-strike"].includes(event) && Number.isFinite(points)) feedback(`+${points} 分`, 830);
     if (["fossil", "chain", "ride", "ride-clear", "boss-orb"].includes(event)) {
       for (let i = 0; i < (event === "chain" ? 18 : 7); i++) {
@@ -1284,6 +1315,7 @@ export function mount(root, { roomTransport = null } = {}) {
     const state = run.boss;
     const active = !!state;
     show("boss-hud", active);
+    show("boss-safety", !!state?.mercy);
     if (active) {
       const label = `${state.index}:${state.phase}:${state.hp}:${state.lanes.join(",")}:${state.weakLane}`;
       if (label === bossHudKey) return;
@@ -1313,7 +1345,7 @@ export function mount(root, { roomTransport = null } = {}) {
   }
 
   function updateHud() {
-    const distance = Math.max(0, Math.floor(run.distance - (run.practice ? BOSSES[practiceIndex].distance : 0)));
+    const distance = Math.max(0, Math.floor(run.distance - (run.practice ? run.practiceOrigin ?? BOSSES[practiceIndex].distance : 0)));
     const points = runScore(run);
     if (distance !== score.distance) text("run-distance", digits(distance, 4));
     if (run.fossils !== score.fossils) text("run-fossils", digits(run.fossils));
@@ -1369,9 +1401,12 @@ export function mount(root, { roomTransport = null } = {}) {
         }
       }
 
+      const lesson = !ranked && !paused && !startAt ? sectionLesson(run, save.current.lessons) : "";
+      show("lesson-hud", !!lesson);
+      if (lesson) text("lesson-hud", lesson);
       if (!paused && !startAt && !run.done) {
         if (ranked) advanceRanked(dt);
-        else for (let remaining = dt; remaining > 0.0001 && !run.done;) {
+        else for (let remaining = lesson ? dt * 0.48 : dt; remaining > 0.0001 && !run.done;) {
           const step = Math.min(remaining, 1 / 100);
           stepRun(run, step, runEvent);
           remaining -= step;
@@ -1407,6 +1442,12 @@ export function mount(root, { roomTransport = null } = {}) {
   }
 
   on(root, "click", event => {
+    const tab = event.target.closest("[data-board]");
+    if (tab && tab.dataset.board !== boardKind && panel === "rank") {
+      boardKind = tab.dataset.board;
+      void refreshBoard();
+      return;
+    }
     const purchase = event.target.closest("[data-buy-boost]");
     if (purchase) { void buyBoost(purchase.dataset.buyBoost); return; }
     const boost = event.target.closest("[data-boost]");

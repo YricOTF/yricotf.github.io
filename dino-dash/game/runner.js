@@ -1,15 +1,16 @@
-import { courseGroup, FIRST_GROUP, flightPose, GROUP_SPACING, hash, isFlyer, rideHeight, rideLength, trackDistance } from "./course.js?v=10";
-import { advanceBoss, battleRoute, beginBoss, BOSSES, collectStrike, LANES, POWERUPS, restoreBoss } from "./challenge.js?v=11";
+import { biomeLength, courseGroup, FIRST_GROUP, flightPose, GROUP_SPACING, hash, isFlyer, rideHeight, rideLength, trackDistance } from "./course.js?v=10";
+import { advanceBoss, battleRoute, beginBoss, BOSSES, collectStrike, LANES, POWERUPS, restoreBoss } from "./challenge.js?v=12";
 import { cruisingSpeed, HIGH_JUMP_TIME, JUMP_TIME, jumpHeight, VINE_GAP_END, VINE_GAP_START, VINE_GRAB_END, VINE_GRAB_START, VINE_GRIP } from "./movement.js?v=6";
-import { sectionsNear, sectionFossils, SECTION_RULES, RIVER_SWING, RIVER_RELEASE, RIVER_GRAB_BACK, RIVER_GRAB_FORWARD, swingHeight } from "./sections.js?v=10";
+import { sectionsNear, sectionFossils, SECTION_RULES, RIVER_SWING, RIVER_RELEASE, RIVER_GRAB_BACK, RIVER_GRAB_FORWARD, swingHeight } from "./sections.js?v=12";
 
 export { LANES, hash };
-import { OPENING_BOOSTS } from "./catalog.js?v=11";
-export { SKINS } from "./catalog.js?v=11";
+import { OPENING_BOOSTS } from "./catalog.js?v=12";
+export { SKINS } from "./catalog.js?v=12";
 export const RACE_METRES = 650;
 export const RACE_LIMIT_MS = 65_000;
 export const RACE_RULES = SECTION_RULES;
-export const SOLO_RULES = 7;
+export const STREAM_RULES = 7;
+export const SOLO_RULES = 8;
 const LAUNCH_PACE = { flight: 62, dash: 55 };
 const POWER_LIMITS = Object.fromEntries(Object.keys(POWERUPS).map(id => [id,
   Math.max(POWERUPS[id].duration, ...Object.values(OPENING_BOOSTS).map(boost => boost.effects[id] || 0))]));
@@ -51,14 +52,14 @@ export function trackGroup(seed, index, mode = "solo", rules = SOLO_RULES, arena
   const dist = trackDistance(seed, index);
   const spanAhead = rules >= 5 ? 15 : 13;
   const spanBehind = rules >= 5 ? 15 : 8;
-  if (rules < SOLO_RULES && mode === "solo" && arenaSites(arenaRoute).some(site => rules < 4 ? Math.abs(dist - site) <= 16
+  if (rules < STREAM_RULES && mode === "solo" && arenaSites(arenaRoute).some(site => rules < 4 ? Math.abs(dist - site) <= 16
     : dist + spanAhead >= site - ARENA_LEAD && dist - spanBehind <= site + ARENA_EXIT)) {
     return { obstacles: [], fossils: [], powers: [] };
   }
   if (rules >= SECTION_RULES && sectionsNear(seed, dist, 15, 15, mode).length) return { obstacles: [], fossils: [], powers: [] };
   if (rules >= 3) {
     const group = courseGroup(seed, index, mode, dist, roll, POWER_IDS, rules);
-    const chase = rules >= SOLO_RULES && mode === "solo"
+    const chase = rules >= STREAM_RULES && mode === "solo"
       && arenaSites(arenaRoute).some(site => dist >= site - 25 && dist < site + 1060);
     if (!chase) return group;
     const obstacles = group.obstacles.filter(mark => mark.kind !== "meteor" || roll(19) < 0.22);
@@ -122,7 +123,22 @@ export function newPractice(index) {
   run.practice = true;
   run.nextBoss = index;
   run.distance = BOSSES[index].distance;
-  run.boss = beginBoss(index, cruisingSpeed(run.distance), true);
+  run.boss = beginBoss(index, cruisingSpeed(run.distance), true, run.seed);
+  return run;
+}
+
+export function newSectionPractice(kind, seed = randomSeed()) {
+  if (kind !== "river" && kind !== "rail") return null;
+  const length = biomeLength(SOLO_RULES);
+  const origin = length * (kind === "river" ? 1 : 2);
+  const [section] = sectionsNear(seed, origin, length - 1);
+  if (!section || section.kind !== kind) return null;
+  const run = newRun(seed);
+  run.practice = true;
+  run.practiceSection = kind;
+  run.distance = section.start - 17;
+  run.practiceOrigin = run.distance;
+  run.nextBoss = BOSSES.length;
   return run;
 }
 
@@ -182,20 +198,23 @@ export function loadRun(snapshot, mode = "solo") {
     }
   }
   if (mode === "solo") {
-    run.arenaRoute = Number.isInteger(snapshot.arenaRoute) && [3, 4, 5, SECTION_RULES, SOLO_RULES].includes(snapshot.arenaRoute) ? snapshot.arenaRoute
+    run.arenaRoute = Number.isInteger(snapshot.arenaRoute) && [3, 4, 5, SECTION_RULES, STREAM_RULES, SOLO_RULES].includes(snapshot.arenaRoute) ? snapshot.arenaRoute
       : snapshot.legacyBossRoute === true || snapshot.rules < 4 || snapshot.rules === undefined ? 3 : snapshot.rules === 4 ? 4 : 5;
     if (snapshot.rules !== SOLO_RULES) run.grace = Math.max(run.grace, 0.8);
     const sites = arenaSites(run.arenaRoute);
     const passed = sites.filter(site => site < snapshot.distance - 0.01).length;
     run.nextBoss = Number.isInteger(snapshot.nextBoss)
       ? clamp(snapshot.nextBoss, snapshot.rules >= SECTION_RULES ? 0 : passed, BOSSES.length) : passed;
-    run.boss = restoreBoss(snapshot.boss, run.distance, sites[snapshot.boss?.index], snapshot.rules >= SECTION_RULES, snapshot.rules === SOLO_RULES);
+    run.boss = restoreBoss(snapshot.boss, run.distance, sites[snapshot.boss?.index], snapshot.rules >= SECTION_RULES, snapshot.rules >= STREAM_RULES, snapshot.rules >= SOLO_RULES ? run.seed : 0);
     if (run.boss) {
       run.nextBoss = run.boss.index;
       if (snapshot.rules !== SOLO_RULES) {
         run.boss.streaming = true;
+        run.boss.patternSeed = run.seed;
+        run.boss.beat = 0;
+        run.boss.mercy = run.boss.hp > 0;
         run.boss.pace = cruisingSpeed(run.distance);
-        if (run.boss.hp > 0) Object.assign(run.boss, { phase: "intro", age: 0, lanes: [], routeMask: 0, travel: Math.max(0, run.distance - sites[run.boss.index]) });
+        if (run.boss.hp > 0) Object.assign(run.boss, { phase: "intro", age: 0, beat: 0, lanes: [], strike: null, routeMask: 0, travel: Math.max(0, run.distance - sites[run.boss.index]) });
       }
     }
 
@@ -264,6 +283,13 @@ function damage(run, cause, notify) {
     run.grace = 0.55;
     run.flash = 0.48;
     notify("shield", cause);
+    return;
+  }
+  if (!lostTrack && run.boss?.mercy) {
+    run.boss.mercy = false;
+    run.grace = 0.67;
+    run.flash = 0.56;
+    notify("boss-save", cause);
     return;
   }
   run.lastHit = cause;
@@ -386,6 +412,12 @@ function finishSection(run, section, notify) {
   const assisted = run.riverAssist;
   run.riverAssist = false;
   if (section.kind === "rail") run.y = 0;
+  if (run.practiceSection === section.kind) {
+    run.won = run.done = true;
+    notify("ride-clear");
+    return;
+  }
+  notify("section-clear", section.kind);
   if (assisted) return;
   run.fossils += section.kind === "river" ? 6 : 8;
   const bonus = section.kind === "river" ? 260 : 320;
@@ -560,6 +592,7 @@ export function stepRun(run, dt, notify = () => {}) {
     if (run.death) return;
     pickups(run, { powers: [], fossils: sectionFossils(section) }, previous, notify);
     if (run.distance >= section.end) finishSection(run, section, notify);
+    if (run.done) return;
   } else if (run.rules < SECTION_RULES && run.ride) {
     const { kind, lane, d, grabD, grabY } = run.ride;
     const progress = (run.distance - d) / rideLength(kind);
@@ -581,9 +614,9 @@ export function stepRun(run, dt, notify = () => {}) {
   if (!run.boss && site !== undefined && run.distance >= site && run.distance >= run.bossExit) {
     if (run.rules < SECTION_RULES) run.distance = site;
     run.ride = null;
-    run.boss = beginBoss(run.nextBoss, run.rules >= SECTION_RULES ? cruisingSpeed(run.distance) : 0, run.rules >= SOLO_RULES);
+    run.boss = beginBoss(run.nextBoss, run.rules >= SECTION_RULES ? cruisingSpeed(run.distance) : 0, run.rules >= STREAM_RULES, run.rules >= SOLO_RULES ? run.seed : 0);
     notify("boss-enter", BOSSES[run.nextBoss]);
-    if (run.rules < SOLO_RULES) return;
+    if (run.rules < STREAM_RULES) return;
   }
 
   for (const group of runGroups(run, 27, 7)) {

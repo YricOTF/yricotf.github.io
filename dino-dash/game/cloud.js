@@ -1,5 +1,5 @@
 import { cloudConfig } from "./cloud-config.js?v=9";
-import { hashMoves } from "./replay.js?v=11";
+import { hashMoves } from "./replay.js?v=12";
 
 const SESSION_KEY = "dino-dash.cloud.v1";
 const OUTBOX_KEY = "dino-dash.rank-outbox.v1";
@@ -107,8 +107,8 @@ export class Cloud {
     }
   }
 
-  board() {
-    return this.fetch("/rest/v1/rpc/dino_leaderboard", {});
+  board(kind = "score") {
+    return this.fetch(kind === "fossils" ? "/rest/v1/rpc/dino_fossil_leaderboard" : "/rest/v1/rpc/dino_leaderboard", {});
   }
 
   profile() {
@@ -135,7 +135,7 @@ export class Cloud {
     if (this.jobs().filter(item => item.project === this.url && item.user === this.saved.id).length >= 8) {
       throw new CloudError(429, "待上报的成绩较多，请先刷新排行榜重试上传。");
     }
-    const ticket = await this.signed("/rest/v1/rpc/dino_start_run_v3", {});
+    const ticket = await this.signed("/rest/v1/rpc/dino_start_run_v4", {});
     if (!ticket?.id || !Number.isInteger(ticket?.seed)) throw new CloudError(503, "排位赛道暂不可用。");
     return ticket;
   }

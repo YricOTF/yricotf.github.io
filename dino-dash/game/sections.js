@@ -51,3 +51,31 @@ export function sectionFossils(section) {
     d: fork.d + offset, lane: fork.lane, y: 1.31, id: `${section.id}-${i}-${offset}`,
   })));
 }
+
+const side = (current, target) => current > target ? "左" : "右";
+
+export function sectionLesson(run, completed) {
+  if (run.done || run.death || run.launch || run.mode !== "solo") return "";
+  const [section] = sectionsNear(run.seed, run.distance);
+  if (!section || run.distance < section.start - 17 || run.distance >= section.end
+    || section.start < run.bossExit || !run.practiceSection && completed.includes(section.kind)
+    || run.practice && !run.practiceSection) return "";
+  if (section.kind === "river") {
+    const held = run.ride?.kind === "river" ? run.ride : null;
+    if (!held && run.distance < section.start - 1) {
+      if (run.lane !== 1) return "先到中间";
+      return run.distance < section.start - 7 ? "准备起跳接藤" : "现在上划 · 接藤";
+    }
+    if (!held) return "保持方向 · 接住下一根";
+    const next = section.vines[section.vines.findIndex(rope => rope.id === held.id) + 1];
+    if (next && run.lane !== next.lane) return `向${side(run.lane, next.lane)}划 · 对准下一根`;
+    if (run.distance - held.d < RIVER_RELEASE) return "等待握点亮起";
+    return next ? "现在上划 · 跃向下一根" : "现在上划 · 跃上河岸";
+  }
+  if (run.ride?.kind !== "rail") return "对准中间 · 上矿车";
+  const fork = section.forks.find(turn => turn.d > run.distance);
+  const beam = section.beams.find(mark => mark.d >= run.distance && mark.d - run.distance <= 15 && mark.lane === run.lane);
+  if (beam) return "下划 · 躲开横梁";
+  if (!fork) return "保持中间 · 驶离矿道";
+  return run.lane === fork.lane ? "保持这条轨道" : `向${side(run.lane, fork.lane)}划 · 避开断轨`;
+}
