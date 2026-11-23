@@ -62,7 +62,7 @@ export function rankHandler({ url, serviceKey, request = fetch }) {
       if (!replay) return reject(422, "replay");
       if (!await verifyProofs(data.ticks, data.moves, entry.proofs || [])) return reject(422, "checkpoint");
       const saved = await rpc("dino_finish_verified", { p_id: data.ticket, p_player: user.id, p_version: entry.version,
-        p_ticks: data.ticks, p_nick: data.nick.replace(/[\p{Cc}\p{Cf}]/gu, ""), p_score: replay.score, p_distance: replay.distance, p_fossils: replay.fossils });
+        p_ticks: data.ticks, p_nick: entry.version >= 3 ? "" : data.nick.replace(/[\p{Cc}\p{Cf}]/gu, ""), p_score: replay.score, p_distance: replay.distance, p_fossils: replay.fossils });
       if (!saved.ok) return reply([403, 409].includes(saved.status) ? saved.status : 503, { error: "storage" });
       return reply(200, await saved.json());
     } catch {

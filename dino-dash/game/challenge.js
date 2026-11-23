@@ -37,12 +37,12 @@ export function bossAttack(state) {
   return waveFor(state)[state.beat || 0];
 }
 
-export function beginBoss(index, pace = 0) {
+export function beginBoss(index, pace = 0, streaming = false) {
   return { index, hp: BOSSES[index].hp, phase: "intro", age: 0, cycle: 0, beat: 0,
-    retargeted: false, lanes: [], weakLane: 1, travel: 0, pace, routeMask: 0, routeAge: 0, hitFrom: 0, hitY: 1 };
+    retargeted: false, lanes: [], weakLane: 1, travel: 0, pace, streaming, strike: null, routeMask: 0, routeAge: 0, hitFrom: 0, hitY: 1 };
 }
 
-export function restoreBoss(raw, distance, site, chase = false) {
+export function restoreBoss(raw, distance, site, chase = false, streaming = false) {
   const spec = BOSSES[raw?.index];
   const start = chase && Number.isFinite(raw?.travel) ? distance - raw.travel : distance;
   if (!spec || !Number.isFinite(site) || (chase ? start + 0.01 < site : Math.abs(start - site) > 0.01) || !Object.hasOwn(PHASE_MAX, raw.phase)
@@ -51,7 +51,9 @@ export function restoreBoss(raw, distance, site, chase = false) {
     || !Number.isSafeInteger(raw.cycle) || raw.cycle < 0 || ![0, 1, 2].includes(raw.weakLane)
     || !Array.isArray(raw.lanes) || raw.lanes.length > 2 || raw.lanes.some(lane => ![0, 1, 2].includes(lane))) return null;
   const pace = chase && Number.isFinite(raw.pace) ? Math.max(15, Math.min(34, raw.pace)) : 0;
-  return { ...beginBoss(raw.index, pace), hp: raw.hp, phase: raw.phase, age: raw.age,
+  const strike = streaming && [0, 1, 2].includes(raw.strike?.lane) && Number.isFinite(raw.strike.d)
+    && Math.abs(raw.strike.d - distance) < 200 ? { d: raw.strike.d, lane: raw.strike.lane } : null;
+  return { ...beginBoss(raw.index, pace, streaming), strike, hp: raw.hp, phase: raw.phase, age: raw.age,
     cycle: raw.cycle,
     beat: raw.beat === 1 && BOSSES[raw.index].attacks[raw.cycle % BOSSES[raw.index].attacks.length].length > 1 ? 1 : 0,
     retargeted: raw.retargeted === true, lanes: [...new Set(raw.lanes)], weakLane: raw.weakLane,
@@ -63,7 +65,7 @@ export function restoreBoss(raw, distance, site, chase = false) {
 }
 
 export function battleRoute(state) {
-  if (state.phase !== "exposed" && state.phase !== "throw") return null;
+  if (state.streaming || state.phase !== "exposed" && state.phase !== "throw") return null;
   const themes = [["ridge", "hurdle"], ["root", "lowgate"], ["washout", "beam"]];
   const lane = state.weakLane;
   const kind = themes[state.index][state.cycle % 2];
@@ -96,42 +98,68 @@ function phase(state, name) {
   state.age = 0;
 }
 
-function aim(run, state) {
+function aim(run, state, course) {
   const attack = bossAttack(state);
-  const first = Math.max(0, Math.min(2, Math.round(run.x / 3) + 1));
+  let first = Math.max(0, Math.min(2, Math.round(run.x / 3) + 1));
+  if (course) {
+    const windup = state.retargeted ? attack.windup - state.age : attack.windup;
+    const lanes = course.lanes(run.distance + state.pace * (windup + contactAt[attack.kind]));
+    const available = lanes.length ? lanes : [0, 1, 2];
+    const safe = available.find(lane => lane !== first && Math.abs(lane - first) === 1)
+      ?? available.find(lane => lane !== first) ?? first;
+    if (first === safe) first = (first + 1) % 3;
+    const alternate = [0, 1, 2].find(lane => lane !== safe && lane !== first);
+    state.lanes = attack.count === 1 ? [first] : [first, alternate];
+    state.weakLane = safe;
+    return;
+  }
   const second = (first + 1 + ((run.seed + state.cycle + state.beat) % 2)) % 3;
   state.lanes = attack.count === 1 ? [first] : [first, second];
   const clear = [0, 1, 2].filter(lane => !state.lanes.includes(lane));
   state.weakLane = clear[(run.seed + state.cycle) % clear.length];
 }
 
-function warn(run, state) {
+function warn(run, state, course) {
   state.retargeted = false;
-  aim(run, state);
+  aim(run, state, course);
+  if (course) {
+    state.strike = null;
+    if (state.beat + 1 === waveFor(state).length) {
+      const d = run.distance + state.pace * (bossAttack(state).windup + PHASE_MAX.impact + 1.16);
+      const open = course.lanes(d, 14);
+      const lane = open.includes(state.weakLane) ? state.weakLane : open[0] ?? state.weakLane;
+      state.strike = { d, lane };
+    }
+  }
   phase(state, "warning");
 }
 
-export function advanceBoss(run, dt, hit, notify) {
+export function advanceBoss(run, dt, hit, notify, course = null) {
   const state = run.boss;
   const attack = bossAttack(state);
-  state.travel += dt * (state.pace || ARENA_SPEED);
+  state.travel += course?.distance ?? dt * (state.pace || ARENA_SPEED);
   const previous = state.age;
   state.age += dt;
   switch (state.phase) {
     case "intro":
-      if (state.age >= PHASE_MAX.intro) warn(run, state);
+      if (state.age >= PHASE_MAX.intro) {
+        if (course?.canAttack === false) state.age = PHASE_MAX.intro;
+        else warn(run, state, course);
+      }
       break;
     case "warning":
       if (attack.feint && !state.retargeted && state.age >= attack.feint) {
         state.retargeted = true;
-        aim(run, state);
+        aim(run, state, course);
         notify("feint");
       }
       if (state.age < attack.windup) break;
       phase(state, "impact");
+      if (attack.kind === "meteor") notify("meteor-fall");
       break;
     case "impact":
       if (previous < contactAt[attack.kind] && state.age >= contactAt[attack.kind]) {
+        if (attack.kind === "meteor") notify("meteor-impact");
         if (state.lanes.some(lane => Math.abs(LANES[lane] - run.x) < 1.31) && !(attack.kind === "sweep" && run.y > 1.1)) {
           hit(attack.kind === "meteor" ? "meteor" : `boss-${attack.kind}`);
         } else {
@@ -142,7 +170,7 @@ export function advanceBoss(run, dt, hit, notify) {
       if (state.age < PHASE_MAX.impact) break;
       if (state.beat + 1 < waveFor(state).length) {
         state.beat++;
-        warn(run, state);
+        warn(run, state, course);
       } else {
         state.routeMask = 0;
         phase(state, "exposed");
@@ -157,10 +185,15 @@ export function advanceBoss(run, dt, hit, notify) {
       break;
     case "exposed":
     case "stagger":
-      if (state.age >= (state.phase === "exposed" ? BOSSES[state.index].opening : PHASE_MAX.stagger)) {
+      const limit = state.phase === "exposed" ? BOSSES[state.index].opening : PHASE_MAX.stagger;
+      if (state.age >= limit) {
+        if (course?.canAttack === false) {
+          state.age = limit;
+          break;
+        }
         state.cycle++;
         state.beat = 0;
-        warn(run, state);
+        warn(run, state, course);
       }
       break;
     case "victory":

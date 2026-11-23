@@ -1,14 +1,14 @@
 import { biomeAt, BIOMES } from "./course.js?v=10";
-import { control, normalizeRaceRules, loadRun, newPractice, newRun, RACE_METRES, RACE_RULES, runScore, stepRun, tune } from "./runner.js?v=10";
-import { ACCESSORIES, buyOpeningBoost, chestPrice, OPENING_BOOSTS, fragmentBalance, openChests, owns, packLook, SKINS, unlock, unpackLook, WARDROBE } from "./catalog.js?v=6";
-import { BOSSES, POWERUPS } from "./challenge.js?v=10";
-import { Scene } from "./scene.js?v=10";
-import { normalizeSave, readSession, Save, writeSession } from "./storage.js?v=10";
+import { applyOpeningBoost, control, normalizeRaceRules, loadRun, newPractice, newRun, RACE_METRES, RACE_RULES, runScore, stepRun, tune } from "./runner.js?v=11";
+import { ACCESSORIES, buyOpeningBoost, chestPrice, OPENING_BOOSTS, fragmentBalance, openChests, owns, packLook, SKINS, unlock, unpackLook, WARDROBE } from "./catalog.js?v=11";
+import { BOSSES, POWERUPS } from "./challenge.js?v=11";
+import { Scene } from "./scene.js?v=11";
+import { normalizeSave, readSession, Save, writeSession } from "./storage.js?v=11";
 import { RoomClient } from "./network.js";
-import { Sound } from "./audio.js?v=6";
-import { Cloud } from "./cloud.js?v=10";
+import { Sound } from "./audio.js?v=11";
+import { Cloud } from "./cloud.js?v=11";
 import { HumanCheck } from "./human-check.js?v=7";
-import { MAX_MOVES, MOVES_PER_TICK, PROOF_INTERVAL, RANK_MOVES, RANK_STEP, RANK_TICKS, RANK_RULES, REPLAY_VERSION } from "./replay.js?v=10";
+import { MAX_MOVES, MOVES_PER_TICK, PROOF_INTERVAL, RANK_MOVES, RANK_STEP, RANK_TICKS, RANK_RULES, REPLAY_VERSION } from "./replay.js?v=11";
 
 const RACE_SAVE = "dino-dash.race.v1";
 const CODE_FORMAT = /^[2-9A-HJ-NP-Z]{6}$/;
@@ -50,6 +50,9 @@ export function mount(root, { roomTransport = null } = {}) {
   let ranked = null;
   let rankRequest = 0;
   let rankSignupOpen = null;
+  let cloudName = "";
+  let accountSession = 0;
+  let nicknamePending = false;
   let cloudTimer;
   let captchaToken = "";
   let race = null;
@@ -128,6 +131,7 @@ export function mount(root, { roomTransport = null } = {}) {
   }
 
   function openPanel(name) {
+    if (panel === "account" && name !== "account") humanCheck.hide();
     panel = name;
     for (const section of panels) setHidden(section, section.dataset.panel !== name);
     const heading = panels.find(section => section.dataset.panel === name)?.querySelector("h2");
@@ -146,6 +150,7 @@ export function mount(root, { roomTransport = null } = {}) {
     if (name === "shop") renderShop();
     if (name === "settings") renderAudioSettings();
     if (name === "rank") void refreshBoard();
+    if (name === "account") void refreshAccount();
   }
 
   function queueCloudSnapshot(delay = 2700) {
@@ -159,18 +164,75 @@ export function mount(root, { roomTransport = null } = {}) {
     }, delay);
   }
 
+  function rememberName(nick, persist = false) {
+    cloudName = typeof nick === "string" ? nick : "";
+    if (persist && cloudName && save.current.nick !== cloudName) save.change(profile => { profile.nick = cloudName; });
+  }
+
   function rankControls() {
     show("rank-controls", cloud.enabled);
-    show("rank-join", cloud.enabled && !cloud.joined);
-    show("rank-start", cloud.joined);
-    show("rank-refresh", cloud.enabled);
-    const verify = cloud.enabled && !cloud.joined && panel === "rank";
+    show("rank-start", cloud.joined && !!cloudName);
+    show("rank-account", cloud.enabled);
+    text("rank-account", cloudName ? `账户 · ${cloudName}` : "在「账户」设置昵称后即可排位。");
+  }
+
+  function accountControls() {
+    const verify = cloud.enabled && !cloud.joined && panel === "account";
+    show("account-form", cloud.joined);
     show("rank-human-check", verify);
-    if (verify && !captchaToken) nodes["rank-join"].disabled = true;
+    show("rank-join", verify);
+    text("account-state", cloud.joined ? (cloudName ? `当前昵称 · ${cloudName}` : "设置一个全服唯一的昵称。")
+      : cloud.enabled ? "通过真人验证即可创建本设备的账户。上榜会公开昵称和成绩。" : "云端账户暂未开放。");
+    nodes["rank-join"].disabled = !verify || !rankSignupOpen || !captchaToken;
     if (verify && rankSignupOpen) void humanCheck.show(cloud.captchaSiteKey);
     else {
       humanCheck.hide();
-      if (verify) text("rank-captcha-status", rankSignupOpen === null ? "正在检查排位开放状态…" : "排位注册尚未开放。");
+      if (verify) text("rank-captcha-status", rankSignupOpen === null ? "正在检查注册状态…" : "注册暂未开放。");
+    }
+  }
+
+  async function refreshAccount() {
+    const request = ++accountSession;
+    text("account-status", "");
+    nodes["account-name"].value = save.current.nick || cloudName;
+    accountControls();
+    if (!cloud.enabled) return;
+    try {
+      const current = cloud.joined ? await cloud.profile() : await cloud.signupOpen();
+      if (request !== accountSession || panel !== "account") return;
+      if (typeof current === "boolean") rankSignupOpen = current;
+      else {
+        rememberName(current?.nick);
+        nodes["account-name"].value = save.current.nick || cloudName;
+      }
+      accountControls();
+    } catch {
+      if (panel === "account") text("account-status", "暂时无法读取账户，请稍后再试。");
+    }
+  }
+
+  async function saveNickname(event) {
+    event.preventDefault();
+    if (!cloud.joined || nicknamePending) return;
+    const name = nodes["account-name"].value.normalize("NFKC").trim().replace(/\s+/gu, " ");
+    if (Array.from(name).length > 16 || !/^[\p{L}\p{N}_ -]+$/u.test(name) || !/[\p{L}\p{N}]/u.test(name)) {
+      text("account-status", "请填写 1–16 个有效字符。");
+      return;
+    }
+    nicknamePending = nodes["account-save"].disabled = true;
+    try {
+      const saved = await cloud.setNickname(name);
+      rememberName(saved.nick, true);
+      if (panel === "account") {
+        nodes["account-name"].value = cloudName;
+        text("account-status", "昵称已保存，历史成绩也会显示新昵称。");
+        accountControls();
+      }
+      if (panel === "rank") void refreshBoard();
+    } catch (error) {
+      if (panel === "account") text("account-status", error.status === 409 ? "这个昵称已有人使用。" : error.status === 400 ? "昵称格式不符合要求。" : error.message || "暂时无法保存。");
+    } finally {
+      nicknamePending = nodes["account-save"].disabled = false;
     }
   }
 
@@ -181,14 +243,13 @@ export function mount(root, { roomTransport = null } = {}) {
       text("rank-status", "排行榜待开通。仍可正常游玩单人和联机。");
       return;
     }
-    if (!cloud.joined) {
-      void cloud.signupOpen().catch(() => false).then(open => {
+    if (cloud.joined) {
+      void cloud.profile().then(profile => {
         if (request !== rankRequest || panel !== "rank") return;
-        rankSignupOpen = open;
+        rememberName(profile?.nick);
         rankControls();
-      });
+      }).catch(() => {});
     }
-    nodes["rank-name"].value ||= save.current.nick;
     text("rank-status", "正在读取云端成绩…");
     try {
       const rows = await cloud.board();
@@ -213,13 +274,13 @@ export function mount(root, { roomTransport = null } = {}) {
     const button = nodes["rank-join"];
     if (button.disabled || !rankSignupOpen) return;
     button.disabled = true;
-    text("rank-status", "正在创建本设备的玩家身份…");
+    text("account-status", "正在创建玩家账户…");
     try {
       await cloud.join(captchaToken);
       queueCloudSnapshot();
-      if (panel === "rank") await refreshBoard();
+      if (panel === "account") await refreshAccount();
     } catch (error) {
-      if (panel === "rank") text("rank-status", error.status === 400 ? "真人验证或登录失败，请重试。" : error.status ? error.message : "连接失败，请重试。");
+      if (panel === "account") text("account-status", error.status === 400 ? "真人验证或登录失败，请重试。" : error.status ? error.message : "连接失败，请重试。");
     } finally {
       humanCheck.reset();
     }
@@ -227,13 +288,14 @@ export function mount(root, { roomTransport = null } = {}) {
 
   async function launchRanked() {
     if (mode === "race" || client.session || launching || !cloud.joined) return;
+    if (!cloudName) { openPanel("account"); return; }
     launching = true;
     nodes["rank-start"].disabled = true;
     text("rank-status", "正在领取排位赛道…");
     try {
       await cloud.flush();
       const ticket = await cloud.start();
-      const nick = Array.from(nodes["rank-name"].value.trim()).slice(0, 16).join("");
+      const nick = cloudName;
       beginSolo(newRun(ticket.seed, "solo", RANK_RULES[REPLAY_VERSION]), 2020, { id: ticket.id, nick, ticks: 0, moves: [], carry: 0, lastInput: -1, sameTick: 0,
         nextProof: PROOF_INTERVAL, proofPending: false });
     } catch (error) {
@@ -264,7 +326,7 @@ export function mount(root, { roomTransport = null } = {}) {
   }
 
   function hidePanel() {
-    if (panel === "rank") humanCheck.hide();
+    if (panel === "account") humanCheck.hide();
     panel = "";
     if (dialog.open) dialog.close();
   }
@@ -346,7 +408,7 @@ export function mount(root, { roomTransport = null } = {}) {
         if (boost && profile.boosts[boost] > 0) {
           profile.boosts[boost]--;
           profile.boostSelected = "";
-          Object.assign(started.powers, OPENING_BOOSTS[boost].effects);
+          applyOpeningBoost(started, boost);
         }
         profile.checkpoint = started;
         profile.savedAt = Date.now();
@@ -570,7 +632,7 @@ export function mount(root, { roomTransport = null } = {}) {
     const tray = nodes["chest-results"];
     tray.replaceChildren(...receipt.map((reward, index) => {
       const card = document.createElement("div");
-      const symbol = reward.type === "shard" ? stamp(reward.id) : rewardIcon(reward.type === "boost" ? reward.id : "wildcard");
+      const symbol = reward.type === "shard" ? stamp(reward.id) : rewardIcon(reward.type === "boost" ? reward.id : reward.type);
       const label = document.createElement("strong");
       const amount = document.createElement("small");
       card.className = "reward-card";
@@ -579,8 +641,9 @@ export function mount(root, { roomTransport = null } = {}) {
       symbol.classList.add("reward-symbol");
       if (reward.type === "shard") symbol.append(rewardIcon("shard"));
       const item = WARDROBE.find(entry => entry.id === reward.id);
-      label.textContent = reward.type === "boost" ? OPENING_BOOSTS[reward.id].name : item ? item.name : "万能碎片";
-      amount.textContent = reward.type === "shard" ? `碎片 ×${reward.count}` : `×${reward.count}`;
+      label.textContent = reward.type === "boost" ? OPENING_BOOSTS[reward.id].name
+        : reward.type === "fossil" ? "化石" : item ? item.name : "万能碎片";
+      amount.textContent = reward.type === "shard" ? `${reward.count} 片${reward.recycled ? ` · +${reward.recycled} 化石` : ""}` : `×${reward.count}`;
       card.append(symbol, label, amount);
       return card;
     }));
@@ -639,7 +702,9 @@ export function mount(root, { roomTransport = null } = {}) {
       const arm = document.createElement("button");
       const buy = document.createElement("button");
       heading.textContent = `${boost.name} ×${profile.boosts[id]}`;
-      detail.textContent = Object.entries(boost.effects).map(([power, duration]) => `${POWERUPS[power].name} ${duration} 秒`).join(" + ");
+      const effects = Object.entries(boost.effects).map(([power, duration]) => `${POWERUPS[power].name} ${duration} 秒`);
+      if (boost.launch) effects.unshift(`${boost.launch.kind === "flight" ? "骑翼龙飞越" : "无碰撞冲刺"} ${boost.launch.distance} 米`);
+      detail.textContent = effects.join(" + ");
       arm.type = buy.type = "button";
       arm.className = buy.className = "button compact";
       arm.dataset.boost = buy.dataset.buyBoost = id;
@@ -771,7 +836,14 @@ export function mount(root, { roomTransport = null } = {}) {
       openPanel("lobby");
       return;
     }
-    nodes.nickname.value = save.current.nick || "";
+    nodes.nickname.value = cloudName || save.current.nick;
+    nodes.nickname.readOnly = !!cloudName;
+    if (cloud.joined) void cloud.profile().then(profile => {
+      if (panel !== "online" || !profile?.nick) return;
+      rememberName(profile.nick);
+      nodes.nickname.value = cloudName;
+      nodes.nickname.readOnly = true;
+    }).catch(() => {});
     if (invite) nodes["room-input"].value = invite;
     text("online-hint", client.session ? "正在恢复房间…" : "");
     buttons("create")[0].disabled = !!client.session;
@@ -790,7 +862,7 @@ export function mount(root, { roomTransport = null } = {}) {
     entering = true;
     nodes["create-button"].disabled = true;
     nodes["join-button"].disabled = true;
-    const name = nodes.nickname.value.trim() || "小恐龙";
+    const name = cloudName || nodes.nickname.value.trim() || "小恐龙";
     save.change(profile => { profile.nick = name; });
     text("online-hint", which === "create" ? "正在创建房间…" : "正在加入房间…");
     try {
@@ -1064,6 +1136,7 @@ export function mount(root, { roomTransport = null } = {}) {
       case "continue": launchSolo(true); break;
       case "pause": if (mode === "race") openPanel("leave"); else pauseSolo(); break;
       case "resume": resumeSolo(); break;
+      case "account": if (mode === "menu" && !client.session) openPanel("account"); break;
       case "rank": if (mode === "menu" && !client.session) openPanel("rank"); break;
       case "rank-refresh": void cloud.flush().then(refreshBoard); break;
       case "rank-join": void joinRank(); break;
@@ -1460,6 +1533,7 @@ export function mount(root, { roomTransport = null } = {}) {
     if (panel === "settings") renderAudioSettings();
   });
 
+  on(nodes["account-form"], "submit", saveNickname);
   buildGuide();
   buildPowerHud();
   updateMenu();

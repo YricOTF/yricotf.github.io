@@ -1,9 +1,9 @@
 import { biomeAt, biomeLength, BIOMES, flightPose, isFlyer } from "./course.js?v=10";
-import { ARENA_BOSS_DEPTH, ARENA_EXIT, ARENA_LEAD, arenaSites, runGroups, hash, LANES, clamp, tune } from "./runner.js?v=10";
-import { skinInfo, unpackLook } from "./catalog.js?v=6";
-import { battleRoute, bossAttack, BOSSES, chargeDepth, impactTime, sweepDepth } from "./challenge.js?v=10";
+import { ARENA_BOSS_DEPTH, ARENA_EXIT, ARENA_LEAD, arenaSites, runGroups, hash, LANES, clamp, tune, SOLO_RULES } from "./runner.js?v=11";
+import { skinInfo, unpackLook } from "./catalog.js?v=11";
+import { battleRoute, bossAttack, BOSSES, chargeDepth, impactTime, sweepDepth } from "./challenge.js?v=11";
 import { drawAccessories, drawSpecies, REX_FIT } from "./avatars.js?v=6";
-import { arenaEntrance, courseLandmark, mountainPortal, ravine, sandstone, trackside, vineTree } from "./landscape.js?v=10";
+import { arenaEntrance, courseLandmark, mountainPortal, ravine, sandstone, trackside, vineTree } from "./landscape.js?v=11";
 import { VINE_GAP_END, VINE_GAP_START } from "./movement.js?v=6";
 import { RIVER_RELEASE, RIVER_SWING, SECTION_RULES, sectionFossils, sectionsNear } from "./sections.js?v=10";
 
@@ -442,6 +442,11 @@ export class Scene {
         }
       }
     }
+    const strike = state.strike;
+    if (state.streaming && strike && ["warning", "impact", "exposed"].includes(state.phase)) {
+      const z = run.distance - strike.d;
+      if (z < 1.15 && z > -100) this.attackFossil(LANES[strike.lane], 1.07 + 0.08 * Math.sin(time * 6), z, time);
+    }
     const route = battleRoute(state);
     if (route) {
       for (const mark of route.obstacles) this.obstacle(mark, route.distance - mark.d, time, false, roof, true, 0, habitat);
@@ -463,10 +468,12 @@ export class Scene {
   }
 
   pterosaur(mark, relative, time) {
-    const pose = flightPose(mark, relative);
-    const { x, y, z, yaw, bank } = pose;
-    const wing = Math.sin(time * 16 + mark.d) * 0.21;
-    const actor = { x, y, z, cos: Math.cos(yaw), sin: Math.sin(yaw), scale: 1, flatten: 1 };
+    this.winged(flightPose(mark, relative), time + mark.d / 16);
+  }
+
+  winged({ x, y, z, yaw, bank }, time, scale = 1) {
+    const wing = Math.sin(time * 16) * 0.21;
+    const actor = { x, y, z, cos: Math.cos(yaw), sin: Math.sin(yaw), scale, flatten: 1 };
     const box = (xx, yy, zz, w, h, d, c) => this.box(xx, yy, zz, w, h, d, c, actor);
     this.shadow(x, z, 2.5, 1.27, y > 3 ? 0.19 : 0.38);
     box(0, 0, 0, 0.43, 0.36, 0.86, "#414640");
@@ -789,8 +796,8 @@ export class Scene {
     const death = run.death;
     if (!death) {
       if (!water) this.shadow(run.x, 0.25, 1.43 - run.y * 0.13, 1.93, 0.66 - run.y * 0.16);
-      const swinging = run.ride?.kind === "river";
-      const pitch = swinging ? (run.distance - run.ride.d - 8) * 0.036 : 0;
+      const swinging = run.ride?.kind === "river" || run.launch?.kind === "flight";
+      const pitch = run.ride?.kind === "river" ? (run.distance - run.ride.d - 8) * 0.036 : run.launch?.kind === "flight" ? -0.13 : 0;
       this.dino(run.x, run.y, 0, (LANES[run.lane] - run.x) * -0.16, 0.86, run.phase, skin, {
         slide: run.slide, flash: run.flash, grounded: run.y < 0.16, pitch, idle: swinging || run.ride?.kind === "rail",
       });
@@ -872,8 +879,9 @@ export class Scene {
     this.count = 0;
     const cameraShift = run.x * 0.16;
     const zoomOut = Math.max(0, 1.16 / aspect - 1);
-    const eye = [cameraShift, 4.5 + 1.75 * zoomOut, 7.3 + 8.0 * zoomOut];
-    const target = [cameraShift * 0.82, 1.08, -11.8];
+    const lift = run.launch?.kind === "flight" ? run.y * 0.88 : 0;
+    const eye = [cameraShift, 4.5 + 1.75 * zoomOut + lift, 7.3 + 8.0 * zoomOut];
+    const target = [cameraShift * 0.82, 1.08 + lift, -11.8];
     const matrix = mul(perspective(aspect), lookAt(eye, target));
     const distance = run.distance;
     const length = biomeLength(run.rules, run.mode);
@@ -881,10 +889,10 @@ export class Scene {
     const first = Math.floor(distance / 7);
     const roof = Math.max(8.1, eye[1] + 1.27);
     const sites = run.mode === "solo" ? arenaSites(run.arenaRoute) : [];
-    const groups = run.boss ? [] : runGroups(run, 105, 20);
+    const groups = run.boss && !run.boss.streaming ? [] : runGroups(run, 105, 20);
     const modern = run.rules >= 5;
     const featured = run.rules >= SECTION_RULES;
-    const sections = featured && !run.boss ? sectionsNear(run.seed, distance, 122, 30, run.mode)
+    const sections = featured && (!run.boss || run.boss.streaming) ? sectionsNear(run.seed, distance, 122, 30, run.mode)
       .filter(section => section.start >= run.bossExit) : [];
     const activeRoute = run.boss ? battleRoute(run.boss) : null;
     const ahead = groups.flatMap(group => group.obstacles);
@@ -914,9 +922,9 @@ export class Scene {
       const local = mapAt(spot);
       const detailed = z > -57;
       const edge = spot - 3.5;
-      const arena = sites.some(site => spot >= site - ARENA_LEAD && spot <= site + ARENA_EXIT)
+      const arena = run.rules < SOLO_RULES && (sites.some(site => spot >= site - ARENA_LEAD && spot <= site + ARENA_EXIT)
         || !!run.boss?.pace && spot >= distance - run.boss.travel - ARENA_LEAD
-        || !!run.bossExit && spot <= run.bossExit && spot >= run.bossExit - 170;
+        || !!run.bossExit && spot <= run.bossExit && spot >= run.bossExit - 170);
       const section = sections.find(item => item.start < edge + 7 && item.end > edge);
       const rowCuts = cuts.filter(cut => cut.end > edge && cut.start < edge + 7);
       const onRails = local.id === "cave" && !arena && !featured;
@@ -979,17 +987,16 @@ export class Scene {
       this.cloud((i % 2 ? -1 : 1) * (7 + offset), 8 + offset * 0.1, z, 2.0);
     }
 
-    const gates = featured ? [...sites.map(site => site - ARENA_LEAD), run.bossExit].filter(Boolean)
+    const gates = run.rules >= SOLO_RULES ? [] : featured ? [...sites.map(site => site - ARENA_LEAD), run.bossExit].filter(Boolean)
       : sites.flatMap(site => [site - ARENA_LEAD, site + ARENA_EXIT]);
     for (const edge of gates) {
       const z = distance - edge;
       if (z < 18 && z > -105) arenaEntrance(this, z, mapAt(edge));
     }
-    if (run.boss) {
-      this.battle(run, time, roof, mapAt(distance).id);
-    } else {
+    if (run.boss) this.battle(run, time, roof, mapAt(distance).id);
+    if (!run.boss || run.boss.streaming) {
       const upcoming = sites[run.nextBoss];
-      if (upcoming !== undefined && upcoming - distance < 76 && distance <= upcoming) {
+      if (!run.boss && upcoming !== undefined && upcoming - distance < 76 && distance <= upcoming) {
         const z = distance - upcoming - ARENA_BOSS_DEPTH;
         this.shadow(0, z, 6.105, 5.365, 0.58);
         this.dino(0, 0, z, Math.PI + 0.06, 1.85, time * 9, BOSSES[run.nextBoss].skin, { grounded: true });
@@ -1033,6 +1040,7 @@ export class Scene {
     if (run.ride?.kind === "minecart" || run.ride?.kind === "rail") this.cart(run.x, 0);
     if (run.ride?.kind === "vine") vineTree(this, LANES[run.ride.lane], distance - run.ride.d,
       run.ride.side || Math.sign(run.x) || 1, { z: 0, y: run.y + 1.37 }, modern);
+    if (run.launch?.kind === "flight") this.winged({ x: run.x, y: run.y - 0.24, z: -0.32, yaw: Math.PI, bank: (run.x - LANES[run.lane]) * 0.09 }, time, 1.85);
     this.drawRunner(run, skin, sections.some(section => section.kind === "river" && distance >= section.start && distance < section.end));
     if (run.powers.shield) {
       for (let i = 0; i < 6; i++) {

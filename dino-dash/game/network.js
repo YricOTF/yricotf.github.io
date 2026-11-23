@@ -1,4 +1,4 @@
-import { readSession, writeSession } from "./storage.js";
+import { readSession, writeSession } from "./storage.js?v=11";
 
 const SESSION_KEY = "dino-dash.room.v1";
 

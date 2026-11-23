@@ -1,5 +1,5 @@
-import { loadRun } from "./runner.js?v=10";
-import { ACCESSORIES, OPENING_BOOSTS, restoreRewards, SKINS, WARDROBE, unpackLook } from "./catalog.js?v=6";
+import { loadRun } from "./runner.js?v=11";
+import { ACCESSORIES, OPENING_BOOSTS, restoreRewards, SHARD_RECYCLE, SKINS, WARDROBE, unpackLook } from "./catalog.js?v=11";
 
 const KEY = "dino-dash.save.v1";
 
@@ -43,9 +43,14 @@ export function normalizeSave(raw) {
   const neck = data.version === 2 ? data.neck : previous.neck;
   const equipped = slot => ACCESSORIES.some(item => item.slot === slot && item.id === (slot === "head" ? head : neck) && accessories.includes(item.id));
   const fragments = {};
+  let recycled = 0;
   for (const item of WARDROBE) {
     const count = points(data.fragments?.[item.id]);
-    if (item.cost && count) fragments[item.id] = Math.min(9999, count);
+    if (!item.cost || !count) continue;
+    const owned = (item.slot ? accessories : skins).includes(item.id);
+    const stored = owned ? 0 : Math.min(item.cost, count);
+    if (stored) fragments[item.id] = stored;
+    recycled += (count - stored) * SHARD_RECYCLE;
   }
   const boosts = Object.fromEntries(Object.keys(OPENING_BOOSTS).map(id => [id, Math.min(9999, points(data.boosts?.[id]))]));
   return {
@@ -53,7 +58,7 @@ export function normalizeSave(raw) {
     best: points(data.best),
     bestScore: points(data.bestScore),
     total: points(data.total),
-    fossils: points(data.fossils),
+    fossils: points(points(data.fossils) + recycled),
     unlocked: skins,
     accessories,
     skin: skins.includes(previous.skin) ? previous.skin : "classic",
@@ -66,7 +71,7 @@ export function normalizeSave(raw) {
     chestReceipt: restoreRewards(data.chestReceipt),
     chestOpened: data.chestOpened === true,
     audio: normalizeAudio(data.audio, data.sound !== false),
-    nick: typeof data.nick === "string" ? data.nick.slice(0, 16) : "",
+    nick: typeof data.nick === "string" ? Array.from(data.nick).slice(0, 16).join("") : "",
     checkpoint: loadRun(data.checkpoint),
     races: Array.isArray(data.races) ? data.races.filter(v => typeof v === "string" && v.length <= 16).slice(-30) : [],
     savedAt: points(data.savedAt),

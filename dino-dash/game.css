@@ -546,7 +546,7 @@ kbd.space-key { min-width: 30px; font-size: 0.72rem; }
   display: block;
   width: 52px;
   height: 36px;
-  background-image: url("./icons/wardrobe.png");
+  background-image: url("./icons/wardrobe.png?v=11");
   background-repeat: no-repeat;
   background-size: var(--sheet-size, 1800%) 100%;
   background-position: var(--sheet-x, 0%) center;
@@ -712,3 +712,9 @@ kbd.space-key { min-width: 30px; font-size: 0.72rem; }
 .rank-table td:not(:nth-child(2)) { white-space: nowrap; }
 .rank-name { display: grid; grid-template-columns: auto minmax(0,1fr); align-items: center; gap: 9px; }
 .rank-name input { width: 100%; min-height: 39px; padding: 5px 8px; border: 1px solid #9ca598; background: #fbfbf4; color: #222920; }
+
+.account-actions { margin-top: 12px; }
+#account-form > .button { width: 100%; }
+.reward-icon[data-icon="flight"] { background: url("./icons/flight.png") center / contain no-repeat; }
+.reward-icon[data-icon="dash"] { background: url("./icons/dash.png") center / contain no-repeat; }
+.reward-icon[data-icon="fossil"] { background: url("./icons/fossil.png") center / contain no-repeat; }

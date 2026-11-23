@@ -1,4 +1,4 @@
-import { POWERUPS } from "./challenge.js?v=6";
+import { POWERUPS } from "./challenge.js?v=11";
 
 export const SKINS = [
   { id: "classic", name: "原色暴龙", item: "石墨色与方形长吻", species: "rex", body: "#383937", detail: "#525350", cost: 0 },
@@ -10,7 +10,13 @@ export const SKINS = [
   { id: "crest", name: "风冠龙", item: "向后伸展的长冠", species: "crest", body: "#85877a", detail: "#c2c3b3", cost: 8 },
   { id: "shadow", name: "陨脊暴龙", item: "深色皮肤与碎岩棘", species: "rex", body: "#272922", detail: "#8c8d7d", cost: 12 },
   { id: "dune", name: "流砂迅猛龙", item: "砂岩色与浅纹", species: "raptor", body: "#a0a293", detail: "#c3c6b7", cost: 9 },
-];
+  { id: "fern-rex", name: "蕨原暴龙", item: "深绿鳞片与浅绿背纹", species: "rex", body: "#46664d", detail: "#9cb773", cost: 8 },
+  { id: "ember-raptor", name: "赤曜迅猛龙", item: "红褐条纹与金色短羽", species: "raptor", body: "#884c3c", detail: "#dba260", cost: 10 },
+  { id: "glacier-horn", name: "霜岩角龙", item: "冷色骨盾与雪白尖角", species: "horn", body: "#627e8b", detail: "#c4d9db", cost: 11 },
+  { id: "sun-stego", name: "落日剑龙", item: "暖色背板与沙金边缘", species: "stego", body: "#665348", detail: "#e4a56b", cost: 10 },
+  { id: "jade-club", name: "苔玉甲龙", item: "青灰鳞甲与玉色尾锤", species: "club", body: "#386763", detail: "#9fcbbb", cost: 11 },
+  { id: "violet-crest", name: "暮紫冠龙", item: "紫灰鳞片与淡紫长冠", species: "crest", body: "#584e69", detail: "#b6a0bf", cost: 12 },
+].map(item => ({ ...item, cost: item.cost * 2 }));
 
 export const ACCESSORIES = [
   { id: "cap", name: "探险帽", item: "硬挺帽檐", slot: "head", cost: 6 },
@@ -22,17 +28,20 @@ export const ACCESSORIES = [
   { id: "scarf", name: "格纹围巾", item: "宽格纹短围巾", slot: "neck", cost: 6 },
   { id: "pendant", name: "琥珀吊坠", item: "包裹化石的吊坠", slot: "neck", cost: 7 },
   { id: "ruff", name: "羽绒围领", item: "一圈灰白细羽", slot: "neck", cost: 8 },
-];
+].map(item => ({ ...item, cost: item.cost * 2 }));
 
 export const WARDROBE = [...SKINS, ...ACCESSORIES];
 export const CHEST_COST = 120;
+export const SHARD_RECYCLE = CHEST_COST / 4 * 0.30;
 export const OPENING_BOOSTS = {
-  magnet: { ...POWERUPS.magnet, cost: 180, effects: { magnet: POWERUPS.magnet.duration } },
-  shield: { ...POWERUPS.shield, cost: 220, effects: { shield: POWERUPS.shield.duration } },
-  amber: { ...POWERUPS.amber, cost: 240, effects: { amber: POWERUPS.amber.duration } },
-  feather: { ...POWERUPS.feather, cost: 180, effects: { feather: POWERUPS.feather.duration } },
-  trail: { name: "化石寻迹", cost: 360, effects: { magnet: 8, amber: 8 } },
-  scout: { name: "岩翼护航", cost: 420, effects: { shield: 18, feather: 10 } },
+  flight: { name: "翼龙起航", cost: 440, launch: { kind: "flight", distance: 450 }, effects: {} },
+  dash: { name: "迅猛冲刺", cost: 300, launch: { kind: "dash", distance: 260 }, effects: { magnet: 16 } },
+  trail: { name: "化石寻迹", cost: 340, effects: { magnet: 36, amber: 36 } },
+  scout: { name: "岩翼护航", cost: 380, launch: { kind: "flight", distance: 250 }, effects: { shield: 36, feather: 24 } },
+  magnet: { ...POWERUPS.magnet, cost: 180, effects: { magnet: 37 } },
+  shield: { ...POWERUPS.shield, cost: 220, effects: { shield: 42 } },
+  amber: { ...POWERUPS.amber, cost: 240, effects: { amber: 37 } },
+  feather: { ...POWERUPS.feather, cost: 180, effects: { feather: 40 } },
 };
 const LEGACY_GEAR = new Set(["cap", "visor", "crown", "scarf"]);
 const skins = new Map(SKINS.map(item => [item.id, item]));
@@ -81,7 +90,7 @@ export function unlock(profile, item) {
   const wildcard = item.cost - used;
   if (profile.universal < wildcard) return false;
   profile.universal -= wildcard;
-  if (own > used) profile.universal += own - used;
+  profile.fossils += (own - used) * SHARD_RECYCLE;
   delete profile.fragments[item.id];
   (item.slot ? profile.accessories : profile.unlocked).push(item.id);
   return true;
@@ -106,23 +115,32 @@ const randomUnit = () => crypto.getRandomValues(new Uint32Array(1))[0] / 4294967
 
 function chestReward(profile, roll) {
   const tier = roll();
-  if (tier >= 0.80) {
-    const id = BOOSTS[Math.floor(roll() * BOOSTS.length)];
-    profile.boosts[id] = Math.min(9999, (profile.boosts[id] || 0) + 1);
-    return { type: "boost", id, count: 1 };
-  }
-
-  const pool = tier >= 0.65 ? [] : rewards.filter(item =>
-    (tier < 0.40 ? !item.slot : !!item.slot) && !owns(profile, item) && fragmentBalance(profile, item) < item.cost);
-  if (!pool.length) {
+  if (tier >= 0.95) {
     const count = 2 + Math.floor(roll() * 3);
     profile.universal += count;
     return { type: "wildcard", id: "", count };
   }
+  if (tier >= 0.77) {
+    const eligible = BOOSTS.filter(id => (profile.boosts[id] || 0) < 9999);
+    if (!eligible.length) {
+      profile.fossils += CHEST_COST;
+      return { type: "fossil", id: "", count: CHEST_COST };
+    }
+    const id = eligible[Math.floor(roll() * eligible.length)];
+    profile.boosts[id] = (profile.boosts[id] || 0) + 1;
+    return { type: "boost", id, count: 1 };
+  }
+
+  const category = rewards.filter(item => !!item.slot === (tier >= 0.47));
+  const unfinished = category.filter(item => !owns(profile, item) && fragmentBalance(profile, item) < item.cost);
+  const pool = unfinished.length ? unfinished : category;
   const item = pool[Math.floor(roll() * pool.length)];
-  const count = 3 + Math.floor(roll() * 3);
-  profile.fragments[item.id] = fragmentBalance(profile, item) + count;
-  return { type: "shard", id: item.id, count };
+  const drawn = 3 + Math.floor(roll() * 3);
+  const accepted = owns(profile, item) ? 0 : Math.min(drawn, Math.max(0, item.cost - fragmentBalance(profile, item)));
+  const recycled = (drawn - accepted) * SHARD_RECYCLE;
+  if (accepted) profile.fragments[item.id] = fragmentBalance(profile, item) + accepted;
+  profile.fossils += recycled;
+  return accepted ? { type: "shard", id: item.id, count: accepted, recycled } : { type: "fossil", id: item.id, count: recycled };
 }
 
 export function openChests(profile, count, roll = randomUnit) {
@@ -138,8 +156,8 @@ export function openChests(profile, count, roll = randomUnit) {
 export function restoreRewards(receipt) {
   if (!Array.isArray(receipt)) return [];
   return receipt.slice(0, 10).filter(reward =>
-    Number.isInteger(reward?.count) && reward.count >= 1 && reward.count <= 5 &&
-    (reward.type === "wildcard" || reward.type === "boost" && BOOSTS.includes(reward.id) ||
+    Number.isInteger(reward?.count) && reward.count >= 1 && reward.count <= (reward.type === "fossil" ? CHEST_COST : 5) &&
+    (reward.type === "fossil" || reward.type === "wildcard" || reward.type === "boost" && BOOSTS.includes(reward.id) ||
      reward.type === "shard" && rewards.some(item => item.id === reward.id)))
-    .map(({ type, id, count }) => ({ type, id, count }));
+    .map(({ type, id, count, recycled }) => ({ type, id, count, recycled: type === "shard" && Number.isInteger(recycled) ? Math.max(0, Math.min(45, recycled)) : 0 }));
 }

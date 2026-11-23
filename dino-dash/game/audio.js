@@ -68,8 +68,40 @@ export class Sound {
     source.onended = () => { source.disconnect(); envelope.disconnect(); };
   }
 
+  meteor(impact) {
+    const ctx = this.context;
+    if (!this.meteorNoise) {
+      const buffer = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * 0.82), ctx.sampleRate);
+      const values = buffer.getChannelData(0);
+      for (let i = 0; i < values.length; i++) values[i] = Math.random() * 2 - 1;
+      this.meteorNoise = buffer;
+    }
+    const source = ctx.createBufferSource();
+    const filter = ctx.createBiquadFilter();
+    const envelope = ctx.createGain();
+    const now = ctx.currentTime;
+    const length = impact ? .51 : .54;
+    source.buffer = this.meteorNoise;
+    filter.type = impact ? "lowpass" : "bandpass";
+    filter.frequency.setValueAtTime(impact ? 600 : 2150, now);
+    filter.frequency.exponentialRampToValueAtTime(impact ? 75 : 360, now + length);
+    envelope.gain.setValueAtTime(0.0001, now);
+    envelope.gain.linearRampToValueAtTime(impact ? .68 : .27, now + (impact ? .016 : .17));
+    envelope.gain.exponentialRampToValueAtTime(0.0001, now + length);
+    source.connect(filter).connect(envelope).connect(this.effects);
+    source.start(now);
+    source.stop(now + length);
+    source.onended = () => { source.disconnect(); filter.disconnect(); envelope.disconnect(); };
+    if (impact) this.tone(this.effects, "sine", 104, 31, .41, .32, now);
+  }
+
   play(which) {
-    if (!this.settings?.effects || !this.settings.effectsVolume || this.context?.state !== "running" || !effects[which]) return;
+    if (!this.settings?.effects || !this.settings.effectsVolume || this.context?.state !== "running") return;
+    if (which === "meteor-fall" || which === "meteor-impact") {
+      this.meteor(which === "meteor-impact");
+      return;
+    }
+    if (!effects[which]) return;
     const [start, end, length] = effects[which];
     const when = this.context.currentTime + .005;
     this.tone(this.effects, which === "hit" || which === "slide" ? "sawtooth" : "triangle", start, end, length, .17, when);
