@@ -1,8 +1,8 @@
 import { biomeAt, BIOMES } from "./course.js?v=10";
 import { applyOpeningBoost, control, normalizeRaceRules, loadRun, newPractice, newRun, newSectionPractice, RACE_METRES, RACE_RULES, runScore, stepRun, tune } from "./runner.js?v=12";
-import { ACCESSORIES, buyOpeningBoost, chestPrice, OPENING_BOOSTS, fragmentBalance, openChests, owns, packLook, SKINS, unlock, unpackLook, WARDROBE } from "./catalog.js?v=12";
+import { ACCESSORIES, buyOpeningBoost, chestPrice, OPENING_BOOSTS, fragmentBalance, openChests, owns, packLook, SKINS, unlock, unpackLook, WARDROBE } from "./catalog.js?v=13";
 import { BOSSES, POWERUPS } from "./challenge.js?v=12";
-import { Scene } from "./scene.js?v=12";
+import { Scene } from "./scene.js?v=13";
 import { normalizeSave, readSession, Save, writeSession } from "./storage.js?v=12";
 import { RoomClient } from "./network.js?v=12";
 import { Sound } from "./audio.js?v=11";

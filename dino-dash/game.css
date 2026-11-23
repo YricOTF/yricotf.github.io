@@ -546,7 +546,7 @@ kbd.space-key { min-width: 30px; font-size: 0.72rem; }
   display: block;
   width: 52px;
   height: 36px;
-  background-image: url("./icons/wardrobe.png?v=12");
+  background-image: url("./icons/wardrobe.png?v=13");
   background-repeat: no-repeat;
   background-size: var(--sheet-size, 1800%) 100%;
   background-position: var(--sheet-x, 0%) center;

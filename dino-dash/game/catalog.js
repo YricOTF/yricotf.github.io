@@ -10,12 +10,12 @@ export const SKINS = [
   { id: "crest", name: "风冠龙", item: "向后伸展的长冠", species: "crest", body: "#85877a", detail: "#c2c3b3", cost: 8 },
   { id: "shadow", name: "陨脊暴龙", item: "深色皮肤与碎岩棘", species: "rex", body: "#272922", detail: "#8c8d7d", cost: 12 },
   { id: "dune", name: "流砂迅猛龙", item: "砂岩色与浅纹", species: "raptor", body: "#a0a293", detail: "#c3c6b7", cost: 9 },
-  { id: "fern-rex", name: "蕨原暴龙", item: "深绿鳞片与浅绿背纹", species: "rex", body: "#46664d", detail: "#9cb773", cost: 8 },
-  { id: "ember-raptor", name: "赤曜迅猛龙", item: "红褐条纹与金色短羽", species: "raptor", body: "#884c3c", detail: "#dba260", cost: 10 },
-  { id: "glacier-horn", name: "霜岩角龙", item: "冷色骨盾与雪白尖角", species: "horn", body: "#627e8b", detail: "#c4d9db", cost: 11 },
-  { id: "sun-stego", name: "落日剑龙", item: "暖色背板与沙金边缘", species: "stego", body: "#665348", detail: "#e4a56b", cost: 10 },
-  { id: "jade-club", name: "苔玉甲龙", item: "青灰鳞甲与玉色尾锤", species: "club", body: "#386763", detail: "#9fcbbb", cost: 11 },
-  { id: "violet-crest", name: "暮紫冠龙", item: "紫灰鳞片与淡紫长冠", species: "crest", body: "#584e69", detail: "#b6a0bf", cost: 12 },
+  { id: "fern-rex", name: "蕨原暴龙", item: "深绿鳞片与浅绿背纹", species: "rex", body: "#536156", detail: "#a5b193", cost: 8 },
+  { id: "ember-raptor", name: "赤曜迅猛龙", item: "红褐条纹与金色短羽", species: "raptor", body: "#6d524b", detail: "#c0a688", cost: 10 },
+  { id: "glacier-horn", name: "霜岩角龙", item: "冷色骨盾与雪白尖角", species: "horn", body: "#6f7b81", detail: "#cdd7d8", cost: 11 },
+  { id: "sun-stego", name: "落日剑龙", item: "暖色背板与沙金边缘", species: "stego", body: "#5d5550", detail: "#c6aa90", cost: 10 },
+  { id: "jade-club", name: "苔玉甲龙", item: "青灰鳞甲与玉色尾锤", species: "club", body: "#4c6160", detail: "#b1c5be", cost: 11 },
+  { id: "violet-crest", name: "暮紫冠龙", item: "紫灰鳞片与淡紫长冠", species: "crest", body: "#55505c", detail: "#aea4b2", cost: 12 },
 ].map(item => ({ ...item, cost: item.cost * 2 }));
 
 export const ACCESSORIES = [
