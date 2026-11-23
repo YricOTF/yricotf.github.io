@@ -105,8 +105,8 @@ export function courseGroup(seed, index, mode, distance, roll, powerIds, rules) 
   if (terrain) {
     const rideOffset = rules >= 5 && mode === "solo" ? 685 : 86;
     const rideIndex = Math.ceil((start + rideOffset - FIRST_GROUP) / GROUP_SPACING) + Math.floor(hash(seed ^ 0x4bc10, zone) * 2);
-    if (index === rideIndex) kind = biome.id === "jungle" ? "vine" : "minecart";
-    if (biome.id === "cave" && index === rideIndex + 3 && hash(seed ^ 0x76acf, zone) > 0.55) kind = "cart";
+    if (rules < 6 && index === rideIndex) kind = biome.id === "jungle" ? "vine" : "minecart";
+    if (rules < 6 && biome.id === "cave" && index === rideIndex + 3 && hash(seed ^ 0x76acf, zone) > 0.55) kind = "cart";
   } else if (rules === 3) {
     if (biome.id === "jungle" && (local < 30 || index % 4 === 1)) kind = "vine";
     if (biome.id === "cave" && (local < 30 || index % 4 === 2)) kind = "minecart";

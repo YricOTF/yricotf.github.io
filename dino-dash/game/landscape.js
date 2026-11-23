@@ -1,4 +1,4 @@
-import { hash } from "./course.js?v=6";
+import { hash } from "./course.js?v=10";
 import { VINE_GAP_END, VINE_GAP_START, VINE_GRIP } from "./movement.js?v=6";
 
 const sides = [-1, 1];
@@ -11,10 +11,14 @@ function fern(scene, x, z, scale) {
   }
 }
 
-export function vineTree(scene, x, z, side, grip = null, modern = true) {
+export function vineTree(scene, x, z, side, grip = null, modern = true, river = false) {
   const root = side * Math.max(5.85, Math.abs(x) + 2.55);
   const anchor = 6.35;
-  if (modern) {
+  if (river) {
+    scene.box(root, -0.8, z, 3.3, 0.9, 3.8, "#506057");
+    scene.box(root, -0.28, z, 2.05, 0.51, 2.7, "#697660");
+    fern(scene, root + side * 0.98, z + 0.66, 1.12);
+  } else if (modern) {
     const middle = (VINE_GAP_START + VINE_GAP_END) / 2;
     ravine(scene, x, z - middle, VINE_GAP_END - VINE_GAP_START, true);
     scene.box(x, 0.025, z + 3.6, 2.14, 0.05, 0.16, "#859178");
@@ -30,14 +34,14 @@ export function vineTree(scene, x, z, side, grip = null, modern = true) {
   scene.box(x + reach * 0.35, anchor + 0.97, z - 0.12, Math.abs(reach) * 0.73 + 0.43, 0.38, 1.42, "#899b80");
   scene.box(x, anchor - 0.02, z, 0.37, 0.34, 0.43, "#758168");
 
-  const tip = grip || { y: modern ? VINE_GRIP : 1.44, z: z + (modern ? 1.1 : 0.18) };
+  const tip = grip || { y: modern ? VINE_GRIP : 1.44, z: z + (river ? 8.5 : modern ? 1.1 : 0.18) };
   const links = grip ? 18 : 12;
   for (let i = 0; i < links; i++) {
     const t = (i + 0.5) / links;
     scene.box(x + Math.sin(t * Math.PI * 2) * 0.07, anchor + (tip.y - anchor) * t, z + (tip.z - z) * t,
       0.15, Math.abs(tip.y - anchor) / links + 0.13, Math.abs(tip.z - z) / links + 0.16, i % 2 ? "#55654c" : "#748969");
   }
-  scene.box(x, tip.y, tip.z, 0.4, 0.18, 0.28, "#aebfa3");
+  scene.box(x, tip.y, tip.z, 0.4, 0.18, 0.28, grip?.ready ? "#e2d199" : "#aebfa3");
 }
 
 export function ravine(scene, x, z, length, forest = false) {

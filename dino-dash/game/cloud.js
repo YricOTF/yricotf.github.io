@@ -1,5 +1,5 @@
 import { cloudConfig } from "./cloud-config.js?v=9";
-import { hashMoves, REPLAY_VERSION } from "./replay.js?v=7";
+import { hashMoves } from "./replay.js?v=10";
 
 const SESSION_KEY = "dino-dash.cloud.v1";
 const OUTBOX_KEY = "dino-dash.rank-outbox.v1";
@@ -127,7 +127,7 @@ export class Cloud {
     if (this.jobs().filter(item => item.project === this.url && item.user === this.saved.id).length >= 8) {
       throw new CloudError(429, "待上报的成绩较多，请先刷新排行榜重试上传。");
     }
-    const ticket = await this.signed("/rest/v1/rpc/dino_start_run", { p_version: REPLAY_VERSION });
+    const ticket = await this.signed("/rest/v1/rpc/dino_start_run_v2", {});
     if (!ticket?.id || !Number.isInteger(ticket?.seed)) throw new CloudError(503, "排位赛道暂不可用。");
     return ticket;
   }

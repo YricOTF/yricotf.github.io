@@ -1,6 +1,7 @@
-import { control, newRun, runScore, stepRun } from "./runner.js?v=6";
+import { control, newRun, runScore, stepRun } from "./runner.js?v=10";
 
-export const REPLAY_VERSION = 1;
+export const REPLAY_VERSION = 2;
+export const RANK_RULES = Object.freeze({ 1: 5, 2: 6 });
 export const RANK_STEP = 0.01;
 export const RANK_TICKS = 90_000;
 export const RANK_MOVES = ["left", "right", "jump", "slide"];
@@ -26,9 +27,9 @@ export async function verifyProofs(ticks, moves, proofs) {
   return ticks - last <= MAX_PROOF_GAP;
 }
 
-export function replayRanked(seed, ticks, moves) {
+export function replayRanked(seed, ticks, moves, version = REPLAY_VERSION) {
   if (!Number.isInteger(seed) || seed < 1 || seed > 0xffffffff || !Number.isInteger(ticks) || ticks < 1 || ticks > RANK_TICKS
-    || !Array.isArray(moves) || moves.length > MAX_MOVES * 2 || moves.length % 2) return null;
+    || !Object.hasOwn(RANK_RULES, version) || !Array.isArray(moves) || moves.length > MAX_MOVES * 2 || moves.length % 2) return null;
   let prior = -1;
   let count = 0;
   for (let i = 0; i < moves.length; i += 2) {
@@ -38,7 +39,7 @@ export function replayRanked(seed, ticks, moves) {
     if (count > MOVES_PER_TICK) return null;
     prior = tick;
   }
-  const run = newRun(seed);
+  const run = newRun(seed, "solo", RANK_RULES[version]);
   let cursor = 0;
   for (let t = 0; t < ticks; t++) {
     if (run.done) return null;

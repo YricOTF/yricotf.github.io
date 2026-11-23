@@ -1,14 +1,14 @@
-import { biomeAt, BIOMES } from "./course.js?v=6";
-import { control, normalizeRaceRules, loadRun, newPractice, newRun, RACE_METRES, RACE_RULES, runScore, stepRun, tune } from "./runner.js?v=6";
+import { biomeAt, BIOMES } from "./course.js?v=10";
+import { control, normalizeRaceRules, loadRun, newPractice, newRun, RACE_METRES, RACE_RULES, runScore, stepRun, tune } from "./runner.js?v=10";
 import { ACCESSORIES, buyOpeningBoost, chestPrice, OPENING_BOOSTS, fragmentBalance, openChests, owns, packLook, SKINS, unlock, unpackLook, WARDROBE } from "./catalog.js?v=6";
-import { BOSSES, POWERUPS } from "./challenge.js?v=6";
-import { Scene } from "./scene.js?v=6";
-import { normalizeSave, readSession, Save, writeSession } from "./storage.js?v=6";
+import { BOSSES, POWERUPS } from "./challenge.js?v=10";
+import { Scene } from "./scene.js?v=10";
+import { normalizeSave, readSession, Save, writeSession } from "./storage.js?v=10";
 import { RoomClient } from "./network.js";
 import { Sound } from "./audio.js?v=6";
-import { Cloud } from "./cloud.js?v=9";
+import { Cloud } from "./cloud.js?v=10";
 import { HumanCheck } from "./human-check.js?v=7";
-import { MAX_MOVES, MOVES_PER_TICK, PROOF_INTERVAL, RANK_MOVES, RANK_STEP, RANK_TICKS } from "./replay.js?v=7";
+import { MAX_MOVES, MOVES_PER_TICK, PROOF_INTERVAL, RANK_MOVES, RANK_STEP, RANK_TICKS, RANK_RULES, REPLAY_VERSION } from "./replay.js?v=10";
 
 const RACE_SAVE = "dino-dash.race.v1";
 const CODE_FORMAT = /^[2-9A-HJ-NP-Z]{6}$/;
@@ -234,7 +234,7 @@ export function mount(root, { roomTransport = null } = {}) {
       await cloud.flush();
       const ticket = await cloud.start();
       const nick = Array.from(nodes["rank-name"].value.trim()).slice(0, 16).join("");
-      beginSolo(newRun(ticket.seed), 2020, { id: ticket.id, nick, ticks: 0, moves: [], carry: 0, lastInput: -1, sameTick: 0,
+      beginSolo(newRun(ticket.seed, "solo", RANK_RULES[REPLAY_VERSION]), 2020, { id: ticket.id, nick, ticks: 0, moves: [], carry: 0, lastInput: -1, sameTick: 0,
         nextProof: PROOF_INTERVAL, proofPending: false });
     } catch (error) {
       if (panel !== "rank") openPanel("rank");
@@ -795,7 +795,7 @@ export function mount(root, { roomTransport = null } = {}) {
     text("online-hint", which === "create" ? "正在创建房间…" : "正在加入房间…");
     try {
       const options = { code: which === "join" ? code : undefined, name, skin: currentLook(), rules: RACE_RULES };
-      for (const rules of [RACE_RULES, 4, 3, 2]) {
+      for (const rules of [RACE_RULES, 5, 4, 3, 2]) {
         try {
           await client.enter(which, { ...options, rules });
           break;
@@ -1138,6 +1138,7 @@ export function mount(root, { roomTransport = null } = {}) {
 
   function runEvent(event, points) {
     sound.play(event);
+    if (event === "section-enter") feedback(points === "river" ? "起跳接藤 · 变道再跳" : "矿车 · 变道选轨", 2100);
     if (["skill", "chain", "ride-clear", "boss-strike"].includes(event) && Number.isFinite(points)) feedback(`+${points} 分`, 830);
     if (["fossil", "chain", "ride", "ride-clear", "boss-orb"].includes(event)) {
       for (let i = 0; i < (event === "chain" ? 18 : 7); i++) {
@@ -1239,7 +1240,7 @@ export function mount(root, { roomTransport = null } = {}) {
   }
 
   function updateHud() {
-    const distance = run.practice ? 0 : Math.floor(run.distance);
+    const distance = Math.max(0, Math.floor(run.distance - (run.practice ? BOSSES[practiceIndex].distance : 0)));
     const points = runScore(run);
     if (distance !== score.distance) text("run-distance", digits(distance, 4));
     if (run.fossils !== score.fossils) text("run-fossils", digits(run.fossils));

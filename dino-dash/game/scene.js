@@ -1,10 +1,11 @@
-import { biomeAt, biomeLength, BIOMES, flightPose, isFlyer } from "./course.js?v=6";
-import { ARENA_BOSS_DEPTH, ARENA_EXIT, ARENA_LEAD, arenaSites, groupsNear, hash, LANES, clamp, tune } from "./runner.js?v=6";
+import { biomeAt, biomeLength, BIOMES, flightPose, isFlyer } from "./course.js?v=10";
+import { ARENA_BOSS_DEPTH, ARENA_EXIT, ARENA_LEAD, arenaSites, runGroups, hash, LANES, clamp, tune } from "./runner.js?v=10";
 import { skinInfo, unpackLook } from "./catalog.js?v=6";
-import { battleRoute, bossAttack, BOSSES, chargeDepth, impactTime, sweepDepth } from "./challenge.js?v=6";
+import { battleRoute, bossAttack, BOSSES, chargeDepth, impactTime, sweepDepth } from "./challenge.js?v=10";
 import { drawAccessories, drawSpecies, REX_FIT } from "./avatars.js?v=6";
-import { arenaEntrance, courseLandmark, mountainPortal, ravine, sandstone, trackside, vineTree } from "./landscape.js?v=6";
+import { arenaEntrance, courseLandmark, mountainPortal, ravine, sandstone, trackside, vineTree } from "./landscape.js?v=10";
 import { VINE_GAP_END, VINE_GAP_START } from "./movement.js?v=6";
+import { RIVER_RELEASE, RIVER_SWING, SECTION_RULES, sectionFossils, sectionsNear } from "./sections.js?v=10";
 
 const FOG = [0.94, 0.94, 0.92];
 const colors = new Map();
@@ -444,6 +445,10 @@ export class Scene {
     const route = battleRoute(state);
     if (route) {
       for (const mark of route.obstacles) this.obstacle(mark, route.distance - mark.d, time, false, roof, true, 0, habitat);
+      for (const fossil of route.fossils || []) {
+        const z = route.distance - fossil.d;
+        if (z < 3 && run.picked[fossil.id] == null) this.fossil(LANES[fossil.lane], fossil.y, z, time * 2.8);
+      }
       if (exposed) {
         const item = route.attack;
         const relative = route.distance - item.d;
@@ -500,6 +505,82 @@ export class Scene {
     for (const side of [-1, 1]) this.box(x + side * 0.43, 0.05, z, 0.07, 0.048, length, "#adb4a8");
     for (let i = detailed ? -1 : 0; i <= (detailed ? 1 : 0); i++) {
       this.box(x, 0.026, z + length * i / 3, 1.26, 0.036, 0.14, "#575d55");
+    }
+  }
+
+  riverSurface(start, end, distance, time, row) {
+    const length = end - start;
+    const z = distance - (start + end) / 2;
+    this.box(0, -0.97, z, 126, 0.11, length + 0.02, row % 2 ? "#647e74" : "#698479");
+    for (let i = 0; i < 8; i++) {
+      const x = ((hash(51 + row, i) * 36 + time * 2.35) % 36) - 18;
+      const ripple = hash(111 + row, i);
+      this.box(x, -0.902, z + (ripple - 0.5) * length * 0.82, 0.8 + ripple * 2.3, 0.013,
+        Math.min(length * 0.12, 0.19), i % 2 ? "#9bafa1" : "#829f92");
+    }
+  }
+
+  sectionRails(section, start, end, distance, detailed) {
+    const z = distance - (start + end) / 2;
+    this.box(0, -1.16, z, 9.4, 0.18, end - start, "#485950");
+    for (const x of [-32, 32]) this.box(x, -0.22, z, 54.4, 0.43, end - start, "#69766c");
+    for (const [lane, x] of LANES.entries()) {
+      let cursor = start;
+      const cuts = section.forks.filter(fork => fork.lane !== lane && fork.d < end && fork.d + 7.1 > start);
+      for (const cut of [...cuts, { d: end }]) {
+        const limit = Math.min(end, cut.d);
+        if (limit > cursor + 0.02) {
+          const mid = distance - (limit + cursor) / 2;
+          this.box(x, -0.18, mid, 1.75, 0.35, limit - cursor, "#6e7061");
+          this.rails(x, mid, limit - cursor, detailed);
+        }
+        cursor = Math.max(cursor, cut.d + 7.1);
+      }
+    }
+  }
+
+  drawSection(section, run, time, roof) {
+    const rel = d => run.distance - d;
+    const near = z => z > -105 && z < 20;
+    if (section.kind === "river") {
+      for (const bank of [section.start, section.end]) {
+        const z = rel(bank);
+        if (!near(z)) continue;
+        this.box(0, -0.47, z + (bank === section.start ? 0.30 : -0.30), 46, 0.94, 0.61, "#77836b");
+        for (const x of [-6.2, 6.2]) this.jungleTree(x, z + (bank === section.start ? 2.2 : -2.2), 7.4, x > 0);
+      }
+      for (const rope of section.vines) {
+        const z = rel(rope.d + 8);
+        if (!near(z)) continue;
+        const held = run.ride?.kind === "river" && run.ride.id === rope.id;
+        const grip = held ? { y: run.y + 1.35, z: 0,
+          ready: run.distance - rope.d >= RIVER_RELEASE && run.distance - rope.d <= RIVER_SWING } : null;
+        vineTree(this, LANES[rope.lane], z, rope.side, grip, true, true);
+      }
+    } else {
+      const z = rel(section.start);
+      if (z < 0 && near(z)) this.cart(0, z);
+      for (const fork of section.forks) {
+        const x = LANES[fork.lane];
+        const arrowZ = rel(fork.d - 8);
+        if (!near(arrowZ)) continue;
+        for (const other of LANES.filter(lane => lane !== x)) {
+          const blocked = rel(fork.d - 0.18);
+          this.box(other, 0.28, blocked, 1.68, 0.56, 0.40, "#9a845e");
+          this.box(other, 0.44, blocked + 0.23, 1.39, 0.12, 0.07, "#c4aa76");
+        }
+        const post = x + (x === 3 ? -0.96 : 0.96);
+        this.box(post, 1.37, arrowZ, 0.14, 2.74, 0.17, "#7d6b55");
+        this.box(x, 2.67, arrowZ, 1.37, 0.66, 0.17, "#5b6858");
+        this.box(x, 2.63, arrowZ + 0.11, 0.17, 0.30, 0.06, "#e4ca87");
+        this.box(x, 2.78, arrowZ + 0.11, 0.55, 0.13, 0.06, "#e4ca87");
+        this.box(x, 2.89, arrowZ + 0.11, 0.30, 0.11, 0.06, "#e4ca87");
+      }
+      for (const beam of section.beams) if (near(rel(beam.d))) this.obstacle(beam, rel(beam.d), time, false, roof, true, 0, "cave");
+    }
+    for (const mark of sectionFossils(section)) {
+      const z = rel(mark.d);
+      if (z > -72 && z < 4 && run.picked[mark.id] == null) this.fossil(LANES[mark.lane], mark.y, z, time * 2.4 + mark.d);
     }
   }
 
@@ -704,11 +785,15 @@ export class Scene {
     this.draw(matrix, 0);
   }
 
-  drawRunner(run, skin) {
+  drawRunner(run, skin, water = false) {
     const death = run.death;
     if (!death) {
-      this.shadow(run.x, 0.25, 1.43 - run.y * 0.13, 1.93, 0.66 - run.y * 0.16);
-      this.dino(run.x, run.y, 0, (LANES[run.lane] - run.x) * -0.16, 0.86, run.phase, skin, { slide: run.slide, flash: run.flash, grounded: run.y < 0.16 });
+      if (!water) this.shadow(run.x, 0.25, 1.43 - run.y * 0.13, 1.93, 0.66 - run.y * 0.16);
+      const swinging = run.ride?.kind === "river";
+      const pitch = swinging ? (run.distance - run.ride.d - 8) * 0.036 : 0;
+      this.dino(run.x, run.y, 0, (LANES[run.lane] - run.x) * -0.16, 0.86, run.phase, skin, {
+        slide: run.slide, flash: run.flash, grounded: run.y < 0.16, pitch, idle: swinging || run.ride?.kind === "rail",
+      });
       return;
     }
 
@@ -769,7 +854,7 @@ export class Scene {
         pitch = fall * 1.48;
         yaw = side * fall * 0.36;
     }
-    if (y >= -0.15) this.shadow(x, z, 1.6, 1.93, 0.60);
+    if (y >= -0.15 && !water) this.shadow(x, z, 1.6, 1.93, 0.60);
     this.dino(x, y, z, yaw, 0.86, run.phase, skin, { idle: true, grounded: false, pitch, roll, flatten });
     const dust = clamp(death.age * 2.1, 0, 1);
     for (let i = 0; dust < 1 && i < 9; i++) {
@@ -796,8 +881,11 @@ export class Scene {
     const first = Math.floor(distance / 7);
     const roof = Math.max(8.1, eye[1] + 1.27);
     const sites = run.mode === "solo" ? arenaSites(run.arenaRoute) : [];
-    const groups = run.boss ? [] : groupsNear(run.seed, distance, 105, 20, run.mode, run.rules, run.arenaRoute);
+    const groups = run.boss ? [] : runGroups(run, 105, 20);
     const modern = run.rules >= 5;
+    const featured = run.rules >= SECTION_RULES;
+    const sections = featured && !run.boss ? sectionsNear(run.seed, distance, 122, 30, run.mode)
+      .filter(section => section.start >= run.bossExit) : [];
     const activeRoute = run.boss ? battleRoute(run.boss) : null;
     const ahead = groups.flatMap(group => group.obstacles);
     if (activeRoute) ahead.push(...activeRoute.obstacles.map(mark => ({ ...mark, d: distance + mark.d - activeRoute.distance })));
@@ -825,11 +913,25 @@ export class Scene {
       const z = distance - spot;
       const local = mapAt(spot);
       const detailed = z > -57;
-      const arena = sites.some(site => spot >= site - ARENA_LEAD && spot <= site + ARENA_EXIT);
       const edge = spot - 3.5;
+      const arena = sites.some(site => spot >= site - ARENA_LEAD && spot <= site + ARENA_EXIT)
+        || !!run.boss?.pace && spot >= distance - run.boss.travel - ARENA_LEAD
+        || !!run.bossExit && spot <= run.bossExit && spot >= run.bossExit - 170;
+      const section = sections.find(item => item.start < edge + 7 && item.end > edge);
       const rowCuts = cuts.filter(cut => cut.end > edge && cut.start < edge + 7);
-      const onRails = local.id === "cave" && !arena;
-      if (rowCuts.length) {
+      const onRails = local.id === "cave" && !arena && !featured;
+      if (section) {
+        const start = Math.max(section.start, edge);
+        const end = Math.min(section.end, edge + 7);
+        if (section.kind === "river") this.riverSurface(start, end, distance, time, i);
+        else this.sectionRails(section, start, end, distance, detailed);
+        for (const [a, b] of [[edge, start], [end, edge + 7]]) {
+          if (b - a < 0.01) continue;
+          const middle = distance - (a + b) / 2;
+          this.box(0, -0.20, middle, 126, 0.32, b - a, ground);
+          this.box(0, -0.041, middle, 9.42, 0.083, b - a, local.road);
+        }
+      } else if (rowCuts.length) {
         for (const side of [-1, 1]) this.box(side * 33.75, -0.20, z, 58.5, 0.32, 7.01, ground);
         for (const [lane, x] of LANES.entries()) {
           const hole = rowCuts.find(cut => cut.lane === lane);
@@ -847,8 +949,10 @@ export class Scene {
         this.box(0, -0.041, z, 9.42, 0.083, 7, local.road);
         if (onRails) for (const lane of LANES) this.rails(lane, z, 6.98, detailed);
       }
-      for (const x of [-4.67, 4.67]) this.box(x, 0.012, z, 0.18, 0.025, 6.99, local.shoulder);
-      if (!arena) for (const x of [-1.5, 1.5]) this.box(x, 0.014, z, 0.055, 0.023, 2.44, local.line);
+      if (!section) {
+        for (const x of [-4.67, 4.67]) this.box(x, 0.012, z, 0.18, 0.025, 6.99, local.shoulder);
+        if (!arena) for (const x of [-1.5, 1.5]) this.box(x, 0.014, z, 0.055, 0.023, 2.44, local.line);
+      }
       if (local.id === "cave") {
         const onMouth = !(run.mode === "race" && modern) && spot % length < 11;
         if (!onMouth) this.box(0, roof + 0.75, z, 20, 1.8, 7.02, i % 2 ? "#535e5a" : "#59645f");
@@ -858,7 +962,7 @@ export class Scene {
           this.box(ridge + 0.22, roof - 0.79, z + 0.27, 1.03, 0.46, 1.65, "#6f7971");
         }
       }
-      trackside(this, local, z, i, run.seed, arena, detailed, roof);
+      if (section?.kind !== "river") trackside(this, local, z, i, run.seed, arena, detailed, roof);
     }
 
     for (const edge of [boundary, boundary + length]) {
@@ -875,11 +979,11 @@ export class Scene {
       this.cloud((i % 2 ? -1 : 1) * (7 + offset), 8 + offset * 0.1, z, 2.0);
     }
 
-    for (const site of sites) {
-      for (const edge of [site - ARENA_LEAD, site + ARENA_EXIT]) {
-        const z = distance - edge;
-        if (z < 18 && z > -105) arenaEntrance(this, z, mapAt(edge));
-      }
+    const gates = featured ? [...sites.map(site => site - ARENA_LEAD), run.bossExit].filter(Boolean)
+      : sites.flatMap(site => [site - ARENA_LEAD, site + ARENA_EXIT]);
+    for (const edge of gates) {
+      const z = distance - edge;
+      if (z < 18 && z > -105) arenaEntrance(this, z, mapAt(edge));
     }
     if (run.boss) {
       this.battle(run, time, roof, mapAt(distance).id);
@@ -925,10 +1029,11 @@ export class Scene {
       this.shadow(rival.visualX, z, 1.35, 1.48, 0.18);
       this.dino(rival.visualX, rival.visualY, z, 0, 0.82, time * 14, rival.skin, { slide: rival.slide, ghost: true, grounded: rival.visualY < 0.2 });
     }
-    if (run.ride?.kind === "minecart") this.cart(run.x, 0);
+    for (const section of sections) this.drawSection(section, run, time, roof);
+    if (run.ride?.kind === "minecart" || run.ride?.kind === "rail") this.cart(run.x, 0);
     if (run.ride?.kind === "vine") vineTree(this, LANES[run.ride.lane], distance - run.ride.d,
       run.ride.side || Math.sign(run.x) || 1, { z: 0, y: run.y + 1.37 }, modern);
-    this.drawRunner(run, skin);
+    this.drawRunner(run, skin, sections.some(section => section.kind === "river" && distance >= section.start && distance < section.end));
     if (run.powers.shield) {
       for (let i = 0; i < 6; i++) {
         const a = time * 3 + i * Math.PI / 3;

@@ -37,19 +37,21 @@ export function bossAttack(state) {
   return waveFor(state)[state.beat || 0];
 }
 
-export function beginBoss(index) {
+export function beginBoss(index, pace = 0) {
   return { index, hp: BOSSES[index].hp, phase: "intro", age: 0, cycle: 0, beat: 0,
-    retargeted: false, lanes: [], weakLane: 1, travel: 0, routeMask: 0, routeAge: 0, hitFrom: 0, hitY: 1 };
+    retargeted: false, lanes: [], weakLane: 1, travel: 0, pace, routeMask: 0, routeAge: 0, hitFrom: 0, hitY: 1 };
 }
 
-export function restoreBoss(raw, distance, site) {
+export function restoreBoss(raw, distance, site, chase = false) {
   const spec = BOSSES[raw?.index];
-  if (!spec || !Number.isFinite(site) || Math.abs(distance - site) > 0.01 || !Object.hasOwn(PHASE_MAX, raw.phase)
+  const start = chase && Number.isFinite(raw?.travel) ? distance - raw.travel : distance;
+  if (!spec || !Number.isFinite(site) || (chase ? start + 0.01 < site : Math.abs(start - site) > 0.01) || !Object.hasOwn(PHASE_MAX, raw.phase)
     || !Number.isFinite(raw.age) || raw.age < 0 || raw.age > PHASE_MAX[raw.phase] + 0.1
     || !Number.isInteger(raw.hp) || raw.hp < (raw.phase === "victory" ? 0 : 1) || raw.hp > spec.hp
     || !Number.isSafeInteger(raw.cycle) || raw.cycle < 0 || ![0, 1, 2].includes(raw.weakLane)
     || !Array.isArray(raw.lanes) || raw.lanes.length > 2 || raw.lanes.some(lane => ![0, 1, 2].includes(lane))) return null;
-  return { ...beginBoss(raw.index), hp: raw.hp, phase: raw.phase, age: raw.age,
+  const pace = chase && Number.isFinite(raw.pace) ? Math.max(15, Math.min(34, raw.pace)) : 0;
+  return { ...beginBoss(raw.index, pace), hp: raw.hp, phase: raw.phase, age: raw.age,
     cycle: raw.cycle,
     beat: raw.beat === 1 && BOSSES[raw.index].attacks[raw.cycle % BOSSES[raw.index].attacks.length].length > 1 ? 1 : 0,
     retargeted: raw.retargeted === true, lanes: [...new Set(raw.lanes)], weakLane: raw.weakLane,
@@ -66,6 +68,19 @@ export function battleRoute(state) {
   const lane = state.weakLane;
   const kind = themes[state.index][state.cycle % 2];
   const age = state.phase === "throw" ? state.routeAge + state.age : state.age;
+  if (state.pace) {
+    const id = `boss-${state.index}-${state.cycle}`;
+    const hurdle = ["ridge", "root", "beam"][state.index];
+    const obstacle = state.cycle % 2 ? { kind: hurdle, lane, d: state.pace * 0.80 } : null;
+    return {
+      distance: age * state.pace,
+      obstacles: obstacle ? [obstacle] : [],
+      fossils: [0.40, 0.57, 1.06].map((time, i) => ({
+        d: time * state.pace, lane, y: 0.72, id: `${id}-fossil-${i}`,
+      })),
+      attack: { lane, d: state.pace * 1.43, y: 1.07 },
+    };
+  }
   const distance = age * ARENA_SPEED;
   const side = lane === 1 ? 2 * (state.cycle % 2) : 1;
   return {
@@ -99,7 +114,7 @@ function warn(run, state) {
 export function advanceBoss(run, dt, hit, notify) {
   const state = run.boss;
   const attack = bossAttack(state);
-  state.travel += dt * ARENA_SPEED;
+  state.travel += dt * (state.pace || ARENA_SPEED);
   const previous = state.age;
   state.age += dt;
   switch (state.phase) {

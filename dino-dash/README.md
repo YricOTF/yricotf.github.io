@@ -3,7 +3,8 @@
 [打开游戏](https://yricotf.github.io/dino-dash/)
 
 - 方向键或 WASD 操作，空格也能跳跃。手机支持滑动和触屏按钮。
-- 单人跑酷每 3060 米换图。最高速度为 34 米/秒，因此每张地图至少要跑 90 秒。各场首领战前留出 54 米、战后留出 44 米空地。战斗中保留障碍，捡到攻击道具会自动投掷。
+- 单人跑酷每 3060 米换图。最高速度为 34 米/秒，因此每张地图至少要跑 90 秒。首领战中保持跑动。进场和胜利后留出缓冲路段，首领攻击间隙会出现少量障碍、化石和攻击道具。捡到攻击道具会自动投掷。
+- 丛林大河要连续接住四根藤蔓。抓住后可以提前选择下一根藤蔓的方向，等握点亮起时再次跳跃。山洞矿车要在断轨前换轨，遇到横梁时滑铲。
 - 化石弧线按普通跳跃轨迹布置。滑铲、跳跃、走完整条奖励线、完成藤蔓或矿车路线和首领战都能额外得分。最高分与最远里程各自保存。
 - 宝箱支持单开和十连。首抽免费，之后每抽消耗 120 枚化石。化石商店可购买六种开局增益，选中的一份会在下一次新开的单人跑酷消耗。
 - 「设置」可分别开关背景音乐和游戏音效，也可单独调节音量。背景音乐在首次操作后播放，随地图与首领战切换。
@@ -16,7 +17,7 @@
 
 玩家加入后，化石、万能碎片、专属碎片、开局增益和本地纪录会记录为私有快照。管理者可以在 SQL Editor 查询 `dino_private.resource_reconciliation`，对比最近一次上报和已校验的排位收入。快照来源是浏览器，本地钱包仍由游戏存档管理。
 
-在目标 Supabase 项目中启用 Data API、匿名登录和 Auth 的 CAPTCHA Protection，提供程序设为 Turnstile。创建允许 `yricotf.github.io` 的免费 Turnstile 站点，将其 Secret key 仅填入 Supabase Auth。应用 `supabase/migrations/20261122000000_dino_rank.sql`，然后在 `dino-dash` 目录部署校验函数。
+在目标 Supabase 项目中启用 Data API、匿名登录和 Auth 的 CAPTCHA Protection，提供程序设为 Turnstile。创建允许 `yricotf.github.io` 的免费 Turnstile 站点，将其 Secret key 仅填入 Supabase Auth。按顺序应用 `supabase/migrations/` 中的迁移，然后在 `dino-dash` 目录部署校验函数。
 
 ```sh
 node supabase/build.mjs

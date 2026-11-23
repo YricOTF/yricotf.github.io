@@ -1,4 +1,4 @@
-import { RANK_TICKS, REPLAY_VERSION, replayRanked, verifyProofs } from "./engine/replay.js";
+import { RANK_RULES, RANK_TICKS, replayRanked, verifyProofs } from "./engine/replay.js";
 
 const allowedOrigin = origin => origin === "https://yricotf.github.io" || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin || "");
 const isUuid = value => typeof value === "string" && /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(value);
@@ -50,7 +50,7 @@ export function rankHandler({ url, serviceKey, request = fetch }) {
       const entry = await result.json();
       if (entry?.rate_limited) return reply(429, { error: "rate" });
       if (entry?.blocked) return reply(403, { error: "blocked" });
-      if (!entry || entry.attempts_exhausted || entry.version !== REPLAY_VERSION) return reply(409, { error: "ticket" });
+      if (!entry || entry.attempts_exhausted || !Object.hasOwn(RANK_RULES, entry.version)) return reply(409, { error: "ticket" });
       if (entry.finished_at) return reply(200, { score: entry.score, distance: entry.distance, fossils: entry.fossils });
       const reject = async (status, reason) => {
         await rpc("dino_record_rejection", { p_id: data.ticket, p_player: user.id, p_reason: reason }).catch(() => {});
@@ -58,10 +58,10 @@ export function rankHandler({ url, serviceKey, request = fetch }) {
       };
       const started = Date.parse(entry.started_at);
       if (!Number.isFinite(started) || Date.now() - started > 14_400_000 || data.ticks * 10 > Date.now() - started + 2000) return reject(409, "timing");
-      const replay = replayRanked(entry.seed, data.ticks, data.moves);
+      const replay = replayRanked(entry.seed, data.ticks, data.moves, entry.version);
       if (!replay) return reject(422, "replay");
       if (!await verifyProofs(data.ticks, data.moves, entry.proofs || [])) return reject(422, "checkpoint");
-      const saved = await rpc("dino_finish_verified", { p_id: data.ticket, p_player: user.id, p_version: REPLAY_VERSION,
+      const saved = await rpc("dino_finish_verified", { p_id: data.ticket, p_player: user.id, p_version: entry.version,
         p_ticks: data.ticks, p_nick: data.nick.replace(/[\p{Cc}\p{Cf}]/gu, ""), p_score: replay.score, p_distance: replay.distance, p_fossils: replay.fossils });
       if (!saved.ok) return reply([403, 409].includes(saved.status) ? saved.status : 503, { error: "storage" });
       return reply(200, await saved.json());
