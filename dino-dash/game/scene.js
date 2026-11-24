@@ -1,11 +1,11 @@
 import { biomeAt, biomeLength, BIOMES, flightPose, isFlyer } from "./course.js?v=10";
-import { ARENA_BOSS_DEPTH, ARENA_EXIT, ARENA_LEAD, arenaSites, runGroups, hash, LANES, clamp, tune, STREAM_RULES } from "./runner.js?v=12";
+import { ARENA_BOSS_DEPTH, ARENA_EXIT, ARENA_LEAD, arenaSites, runGroups, hash, LANES, clamp, tune, STREAM_RULES } from "./runner.js?v=14";
 import { skinInfo, unpackLook } from "./catalog.js?v=13";
 import { battleRoute, bossAttack, BOSSES, chargeDepth, impactTime, sweepDepth } from "./challenge.js?v=12";
-import { drawAccessories, drawSpecies, REX_FIT } from "./avatars.js?v=12";
+import { drawAccessories, drawSpecies, REX_FIT } from "./avatars.js?v=14";
 import { arenaEntrance, courseLandmark, mountainPortal, ravine, sandstone, trackside, vineTree } from "./landscape.js?v=11";
 import { VINE_GAP_END, VINE_GAP_START } from "./movement.js?v=6";
-import { RIVER_RELEASE, RIVER_SWING, SECTION_RULES, sectionFossils, sectionsNear } from "./sections.js?v=12";
+import { riverTiming, SECTION_RULES, sectionFossils, sectionsNear } from "./sections.js?v=14";
 
 const FOG = [0.94, 0.94, 0.92];
 const colors = new Map();
@@ -550,6 +550,7 @@ export class Scene {
     const rel = d => run.distance - d;
     const near = z => z > -105 && z < 20;
     if (section.kind === "river") {
+      const timing = riverTiming(run.rules);
       for (const bank of [section.start, section.end]) {
         const z = rel(bank);
         if (!near(z)) continue;
@@ -561,7 +562,7 @@ export class Scene {
         if (!near(z)) continue;
         const held = run.ride?.kind === "river" && run.ride.id === rope.id;
         const grip = held ? { y: run.y + 1.35, z: 0,
-          ready: run.distance - rope.d >= RIVER_RELEASE && run.distance - rope.d <= RIVER_SWING } : null;
+          ready: run.distance - rope.d >= timing.release - timing.buffer && run.distance - rope.d <= timing.swing } : null;
         vineTree(this, LANES[rope.lane], z, rope.side, grip, true, true);
       }
     } else {
@@ -585,7 +586,7 @@ export class Scene {
       }
       for (const beam of section.beams) if (near(rel(beam.d))) this.obstacle(beam, rel(beam.d), time, false, roof, true, 0, "cave");
     }
-    for (const mark of sectionFossils(section)) {
+    for (const mark of sectionFossils(section, run.rules)) {
       const z = rel(mark.d);
       if (z > -72 && z < 4 && run.picked[mark.id] == null) this.fossil(LANES[mark.lane], mark.y, z, time * 2.4 + mark.d);
     }

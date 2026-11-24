@@ -35,7 +35,9 @@ function biped(box, skin, phase, idle, grounded) {
     box(0, 2.35, -0.53, 0.49, 0.27, 0.49, body);
     box(0, 2.5, -0.23, 0.37, 0.28, 0.37, detail);
   }
-  return { top: crested ? 2.46 : 2.2, eye: 2.02, headZ: -1.05, neckY: 1.48, neckZ: -0.56, width: 0.81 };
+  return { top: 2.2, headZ: crested ? -1.32 : -1.07, width: 0.81, hatDepth: crested ? 0.76 : 1,
+    eye: 2.02, eyeZ: -1.16, eyeWidth: 0.89, faceZ: -1.805, faceY: 1.88,
+    neckY: 1.49, neckZ: -0.56, neckWidth: 0.64, neckDepth: 0.78, shoulderX: 0.46 };
 }
 
 function quadruped(box, skin, phase, idle, grounded) {
@@ -85,7 +87,12 @@ function quadruped(box, skin, phase, idle, grounded) {
     box(0, 0.8, 1.98, 0.76, 0.42, 0.48, detail);
     box(0, 0.79, 2.1, 0.6, 0.56, 0.36, body);
   }
-  return { top: headHeight + 0.26, eye: headHeight + 0.08, headZ: -1.23, neckY: 0.99, neckZ: -0.68, width: horned ? 0.98 : 0.76 };
+  return { top: horned ? 1.89 : headHeight + 0.24, headZ: horned ? -0.76 : -1.19,
+    width: horned ? 1.24 : 0.73, hatDepth: horned ? 0.68 : 0.83, frill: horned,
+    eye: headHeight + 0.08, eyeZ: -1.28, eyeWidth: horned ? 1.05 : 0.815,
+    faceZ: -1.69, faceY: headHeight - 0.11,
+    neckY: horned ? 0.95 : headHeight - 0.02, neckZ: -0.68,
+    neckWidth: width * 0.83 + 0.07, neckDepth: 0.75, shoulderX: (horned ? 1.16 : plated ? 1.02 : 1.16) / 2 + 0.05 };
 }
 
 export function drawSpecies(box, skin, phase, idle, grounded) {
@@ -94,96 +101,113 @@ export function drawSpecies(box, skin, phase, idle, grounded) {
     : quadruped(box, skin, phase, idle, grounded);
 }
 
-export const REX_FIT = { top: 2.39, eye: 2.17, headZ: -0.75, neckY: 1.56, neckZ: -0.45, width: 1.18 };
+export const REX_FIT = { top: 2.41, headZ: -0.73, width: 1.18, hatDepth: 1,
+  eye: 2.17, eyeZ: -0.80, eyeWidth: 1.27, faceZ: -1.455, faceY: 2.04,
+  neckY: 1.53, neckZ: -0.44, neckWidth: 0.94, neckDepth: 0.66, shoulderX: 0.58 };
 
 export function drawAccessories(box, fit, look) {
-  const { top, eye, headZ, neckY, neckZ, width } = fit;
+  const { top, headZ, width, hatDepth, frill, eye, eyeZ, eyeWidth, faceZ, faceY,
+    neckY, neckZ, neckWidth, neckDepth, shoulderX } = fit;
+  const hat = (x, y, z, w, h, d, color) => box(x, top + y, headZ + z * hatDepth, w, h, d * hatDepth, color);
+  const sides = [-1, 1];
+  const collar = (y, height, color) => {
+    for (const side of sides) box(side * neckWidth / 2, y, neckZ, 0.075, height, neckDepth, color);
+    box(0, y, neckZ - neckDepth / 2, neckWidth, height, 0.075, color);
+    box(0, y, neckZ + neckDepth / 2, neckWidth, height, 0.075, color);
+  };
+  const collarFront = neckZ - neckDepth / 2;
   switch (look.head) {
     case "cap":
-      box(0, top + 0.12, headZ, width * 0.93, 0.23, 0.65, DARK);
-      box(0, top + 0.05, headZ - 0.48, width * 1.03, 0.105, 0.58, "#171816");
-      box(0, top + 0.26, headZ - 0.02, 0.18, 0.065, 0.18, STONE);
+      hat(0, 0.12, 0, width * 0.93, 0.23, 0.65, DARK);
+      hat(0, 0.05, -0.48, width * 1.03, 0.105, 0.58, "#171816");
+      hat(0, 0.26, -0.02, 0.18, 0.065, 0.18, STONE);
       break;
     case "visor":
-      box(0, eye, headZ - 0.13, width * 1.13, 0.23, 0.35, "#181918");
-      for (const side of [-1, 1]) box(side * width * 0.573, eye + 0.035, headZ - 0.15, 0.045, 0.12, 0.24, BONE);
+      for (const side of sides) {
+        box(side * eyeWidth / 2, eye, eyeZ, 0.075, 0.23, 0.35, "#181918");
+        box(side * (eyeWidth / 2 + 0.045), eye + 0.035, eyeZ, 0.025, 0.10, 0.23, BONE);
+      }
       break;
     case "crown":
-      box(0, top + 0.08, headZ, width * 0.92, 0.16, 0.61, STONE);
-      for (const side of [-1, 0, 1]) box(side * width * 0.31, top + 0.25, headZ - 0.18, 0.17, side ? 0.25 : 0.33, 0.17, BONE);
+      hat(0, 0.08, 0, width * 0.92, 0.16, 0.61, STONE);
+      for (const side of [-1, 0, 1]) hat(side * width * 0.31, 0.25, -0.18, 0.17, side ? 0.25 : 0.33, 0.17, BONE);
       break;
     case "helmet":
-      box(0, top + 0.10, headZ, width + 0.17, 0.26, 0.7, "#666b60");
-      box(0, top + 0.27, headZ, width * 0.75, 0.14, 0.46, STONE);
-      for (const side of [-1, 1]) box(side * width * 0.53, top - 0.11, headZ + 0.15, 0.16, 0.51, 0.25, STONE);
+      hat(0, 0.12, 0, width + 0.19, 0.25, 0.7, "#666b60");
+      hat(0, 0.30, 0, width * 0.75, 0.14, 0.46, STONE);
+      for (const side of sides) hat(side * (width / 2 + 0.071), frill ? 0.05 : -0.09, frill ? -0.24 : 0.11,
+        0.13, frill ? 0.21 : 0.44, 0.24, STONE);
       break;
     case "comet":
-      box(0, top + 0.02, headZ, width + 0.05, 0.09, 0.44, DARK);
-      box(0.12, top + 0.28, headZ - 0.14, 0.45, 0.14, 0.14, BONE);
-      box(0.12, top + 0.28, headZ - 0.14, 0.14, 0.45, 0.14, BONE);
-      box(0.12, top + 0.12, headZ - 0.05, 0.08, 0.25, 0.08, STONE);
+      hat(0, 0.045, 0, width + 0.05, 0.09, 0.44, DARK);
+      hat(0.12, 0.28, -0.14, 0.45, 0.14, 0.14, BONE);
+      hat(0.12, 0.28, -0.14, 0.14, 0.45, 0.14, BONE);
+      hat(0.12, 0.12, -0.05, 0.08, 0.25, 0.08, STONE);
       break;
     case "leaf":
-      box(0, top + 0.065, headZ, width + 0.05, 0.13, 0.39, "#4f5248");
-      for (let i = 0; i < 4; i++) box(0.06 + i * 0.04, top + 0.23 + i * 0.09, headZ + i * 0.16, 0.46 - i * 0.079, 0.15, 0.35, i % 2 ? STONE : BONE);
+      hat(0, 0.065, 0, width + 0.05, 0.13, 0.39, "#4f5248");
+      for (let i = 0; i < 4; i++) hat(0.06 + i * 0.04, 0.20 + i * 0.09, i * 0.16, 0.46 - i * 0.079, 0.15, 0.35, i % 2 ? STONE : BONE);
       break;
     case "wing-crest":
-      box(0, top + .06, headZ, width * .98, .12, .53, "#59676b");
+      hat(0, .06, 0, width * .98, .12, .53, "#59676b");
       for (const side of [-1, 0, 1]) {
-        for (let i = 0; i < 3; i++) box(side * width * .31, top + .22 + i * .12, headZ + i * .19,
+        for (let i = 0; i < 3; i++) hat(side * width * .31, .20 + i * .12, i * .19,
           .18, .22 - i * .033, .30, side ? "#9cb5b8" : "#d5ddd3");
       }
       break;
     case "gem-goggles":
-      box(0, eye, headZ - .17, width * 1.14, .12, .52, "#314b44");
-      for (const side of [-1, 1]) {
-        box(side * width * .26, eye + .02, headZ - .44, width * .42, .30, .15, "#41695f");
-        box(side * width * .26, eye + .04, headZ - .53, width * .30, .19, .045, "#a9cabb");
+      for (const side of sides) {
+        box(side * eyeWidth / 2, eye, eyeZ, .069, .12, .53, "#314b44");
+        box(side * (eyeWidth / 2 + .045), eye, eyeZ - .04, .095, .27, .29, "#41695f");
+        box(side * (eyeWidth / 2 + .102), eye, eyeZ - .04, .035, .17, .19, "#a9cabb");
       }
       break;
     case "sun-hat":
-      box(0, top + .06, headZ, width * 1.43, .105, .91, "#a98c58");
-      box(0, top + .20, headZ, width * .79, .25, .58, "#ceb481");
-      box(0, top + .16, headZ - .03, width * .85, .079, .60, "#8a6143");
+      hat(0, .06, 0, width * 1.43, .105, .91, "#a98c58");
+      hat(0, .20, 0, width * .79, .25, .58, "#ceb481");
+      hat(0, .16, -.03, width * .85, .079, .60, "#8a6143");
       break;
     case "bone-mask":
-      box(0, eye - .08, headZ - .41, width * .98, .32, .18, BONE);
-      for (const side of [-1, 1]) {
-        box(side * width * .30, eye + .09, headZ - .44, width * .25, .21, .20, STONE);
-        box(side * width * .33, eye - .27, headZ - .51, .11, .24, .12, "#dbd2b8");
+      box(0, faceY, faceZ - .079, width * (frill ? .50 : .91), .31, .16, BONE);
+      for (const side of sides) {
+        const cheek = width * (frill ? .19 : .31);
+        box(side * cheek, faceY + .10, faceZ - .11, .17, .16, .13, STONE);
+        box(side * cheek, faceY - .21, faceZ - .13, .10, .21, .11, "#dbd2b8");
       }
       break;
   }
   if (look.neck === "scarf") {
-    box(0, neckY, neckZ, width * 0.91, 0.18, 0.71, BONE);
-    for (const z of [-0.22, 0.05, 0.28]) box(width * 0.46, neckY + 0.02, neckZ + z, 0.05, 0.11, 0.12, "#777a70");
-    box(width * 0.47, neckY - 0.17, neckZ + 0.32, 0.13, 0.32, 0.29, STONE);
+    collar(neckY, 0.18, BONE);
+    for (const z of [-0.22, 0.05, 0.28]) box(neckWidth / 2 + 0.043, neckY + 0.02, neckZ + z, 0.045, 0.11, 0.12, "#777a70");
+    box(shoulderX, neckY - 0.17, neckZ + 0.29, 0.13, 0.32, 0.29, STONE);
   } else if (look.neck === "pendant") {
-    box(0, neckY + 0.03, neckZ, width * 0.88, 0.09, 0.64, STONE);
-    box(0, neckY - 0.17, neckZ - 0.32, 0.35, 0.37, 0.11, DARK);
-    box(0, neckY - 0.17, neckZ - 0.39, 0.26, 0.26, 0.08, BONE);
+    collar(neckY + 0.03, 0.09, STONE);
+    box(0, neckY - 0.17, collarFront - 0.041, 0.35, 0.37, 0.11, DARK);
+    box(0, neckY - 0.17, collarFront - 0.11, 0.26, 0.26, 0.08, BONE);
   } else if (look.neck === "ruff") {
-    box(0, neckY, neckZ, width * 0.99, 0.25, 0.73, BONE);
-    for (const side of [-1, 1]) {
-      for (let i = 0; i < 3; i++) box(side * width * 0.48, neckY - 0.109 + (i % 2) * 0.04, neckZ - 0.23 + 0.23 * i, 0.095, 0.24, 0.12, STONE);
+    collar(neckY, 0.25, BONE);
+    for (const side of sides) {
+      for (let i = 0; i < 3; i++) box(side * (neckWidth / 2 + 0.05), neckY - 0.109 + (i % 2) * 0.04,
+        neckZ - 0.23 + 0.23 * i, 0.095, 0.24, 0.12, STONE);
     }
   } else if (look.neck === "fern-cloak") {
-    box(0, neckY, neckZ, width, .17, .68, "#4c6551");
-    for (let i = 0; i < 4; i++) {
-      box(0, neckY - .17 * i, neckZ + .38 + i * .10, width * (1.15 - i * .18), .17, .27,
-        i % 2 ? "#72916f" : "#8aa681");
+    collar(neckY, .17, "#4c6551");
+    for (const side of sides) {
+      box(side * (neckWidth / 2 + shoulderX) / 2, neckY, neckZ + .31, shoulderX - neckWidth / 2 + .12, .15, .25, "#4c6551");
+      for (let i = 0; i < 4; i++) box(side * shoulderX, neckY - .13 * i, neckZ + .40 + i * .105,
+        .15, .18, .38 - i * .05, i % 2 ? "#72916f" : "#8aa681");
     }
   } else if (look.neck === "shell-collar") {
-    box(0, neckY + .04, neckZ, width * .91, .10, .69, "#716b56");
-    for (let i = -2; i <= 2; i++) box(i * width * .19, neckY - .07, neckZ - .35,
-      width * .16, .19 + (2 - Math.abs(i)) * .08, .11, i % 2 ? "#c7ae8d" : "#e2d0ad");
+    collar(neckY + .04, .10, "#716b56");
+    for (let i = -2; i <= 2; i++) box(i * neckWidth * .19, neckY - .07, collarFront - .052,
+      neckWidth * .16, .19 + (2 - Math.abs(i)) * .08, .11, i % 2 ? "#c7ae8d" : "#e2d0ad");
   } else if (look.neck === "river-band") {
-    box(0, neckY, neckZ, width, .19, .76, "#587384");
-    box(0, neckY + .04, neckZ - .39, width * .97, .047, .04, "#b0c8cb");
-    box(width * .38, neckY - .21, neckZ + .36, .21, .31, .14, "#83a1a9");
+    collar(neckY, .19, "#587384");
+    box(0, neckY + .04, collarFront - .045, neckWidth * .97, .047, .04, "#b0c8cb");
+    box(shoulderX, neckY - .21, neckZ + .29, .17, .31, .14, "#83a1a9");
   } else if (look.neck === "ore-charm") {
-    box(0, neckY + .04, neckZ, width * .88, .08, .68, "#5a6064");
-    for (const i of [-1, 0, 1]) box(i * width * .16, neckY - .19, neckZ - .35,
+    collar(neckY + .04, .08, "#5a6064");
+    for (const i of [-1, 0, 1]) box(i * neckWidth * .16, neckY - .19, collarFront - .062,
       .14, i ? .23 : .39, .13, i ? "#8fa0b6" : "#b3cbd9");
   }
 }

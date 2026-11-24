@@ -1,16 +1,17 @@
 import { biomeLength, courseGroup, FIRST_GROUP, flightPose, GROUP_SPACING, hash, isFlyer, rideHeight, rideLength, trackDistance } from "./course.js?v=10";
 import { advanceBoss, battleRoute, beginBoss, BOSSES, collectStrike, LANES, POWERUPS, restoreBoss } from "./challenge.js?v=12";
 import { cruisingSpeed, HIGH_JUMP_TIME, JUMP_TIME, jumpHeight, VINE_GAP_END, VINE_GAP_START, VINE_GRAB_END, VINE_GRAB_START, VINE_GRIP } from "./movement.js?v=6";
-import { sectionsNear, sectionFossils, SECTION_RULES, RIVER_SWING, RIVER_RELEASE, RIVER_GRAB_BACK, RIVER_GRAB_FORWARD, swingHeight } from "./sections.js?v=12";
+import { sectionsNear, sectionFossils, SECTION_RULES, RIVER_RULES, riverTiming, swingHeight } from "./sections.js?v=14";
 
 export { LANES, hash };
 import { OPENING_BOOSTS } from "./catalog.js?v=12";
 export { SKINS } from "./catalog.js?v=12";
 export const RACE_METRES = 650;
 export const RACE_LIMIT_MS = 65_000;
-export const RACE_RULES = SECTION_RULES;
+export const RACE_RULES = RIVER_RULES;
 export const STREAM_RULES = 7;
-export const SOLO_RULES = 8;
+const RANDOM_BOSS_RULES = 8;
+export const SOLO_RULES = RIVER_RULES;
 const LAUNCH_PACE = { flight: 62, dash: 55 };
 const POWER_LIMITS = Object.fromEntries(Object.keys(POWERUPS).map(id => [id,
   Math.max(POWERUPS[id].duration, ...Object.values(OPENING_BOOSTS).map(boost => boost.effects[id] || 0))]));
@@ -44,7 +45,7 @@ export function deathStyle(kind) {
 }
 
 export function normalizeRaceRules(value) {
-  return Number.isInteger(value) && value >= 1 && value <= RACE_RULES ? value : 1;
+  return value === RACE_RULES || Number.isInteger(value) && value >= 1 && value <= SECTION_RULES ? value : 1;
 }
 
 export function trackGroup(seed, index, mode = "solo", rules = SOLO_RULES, arenaRoute = rules) {
@@ -113,7 +114,7 @@ export function newRun(seed = randomSeed(), mode = "solo", rules = mode === "rac
   return {
     seed, mode, rules, distance: 0, elapsed: 0, x: 0, lane: 1, jump: 0, slide: 0, y: 0, boostJump: false,
     fossils: 0, bonus: 0, picked: {}, hit: {}, passed: {}, flash: 0, slow: 0, phase: 0, done: false, death: null, powers: {},
-    ride: null, launch: null, riverLift: 0, riverAssist: false, boss: null, bossExit: 0, nextBoss: 0, bossWins: 0, arenaRoute: rules, grace: 0, practice: false, won: false,
+    ride: null, launch: null, riverLift: 0, riverAssist: false, riverJumpQueued: false, boss: null, bossExit: 0, nextBoss: 0, bossWins: 0, arenaRoute: rules, grace: 0, practice: false, won: false,
   };
 }
 
@@ -183,7 +184,8 @@ export function loadRun(snapshot, mode = "solo") {
   }
   if (run.rules >= SECTION_RULES) {
     const [section] = sectionsNear(run.seed, run.distance, 2, 0, mode);
-    const inside = section && run.distance >= section.start - 3 && run.distance < section.end;
+    const timing = riverTiming(run.rules);
+    const inside = section && run.distance >= section.start - (section.kind === "river" && run.rules >= RIVER_RULES ? timing.approach : 3) && run.distance < section.end;
     if (inside && (!Number.isInteger(snapshot.rules) || snapshot.rules < SECTION_RULES)) {
       run.distance = Math.max(0, section.start - SECTION_BUFFER);
       run.jump = run.y = 0;
@@ -191,24 +193,27 @@ export function loadRun(snapshot, mode = "solo") {
       run.ride = { kind: "rail" };
     } else if (inside && section.kind === "river") {
       const rope = section.vines.find(item => item.d === ride?.d && item.lane === ride?.lane
-        && run.distance >= item.d - RIVER_GRAB_BACK && run.distance <= item.d + RIVER_SWING);
-      if (ride?.kind === "river" && rope) run.ride = { ...rope, kind: "river" };
+        && run.distance >= item.d - timing.back && run.distance <= item.d + timing.swing);
+      if (ride?.kind === "river" && rope) {
+        run.ride = { ...rope, kind: "river" };
+        run.riverJumpQueued = run.rules >= RIVER_RULES && snapshot.riverJumpQueued === true;
+      }
       if (!run.ride && Number.isFinite(snapshot.riverLift)) run.riverLift = clamp(snapshot.riverLift, 0, 3.2);
       run.riverAssist = mode === "race" && snapshot.riverAssist === true;
     }
   }
   if (mode === "solo") {
-    run.arenaRoute = Number.isInteger(snapshot.arenaRoute) && [3, 4, 5, SECTION_RULES, STREAM_RULES, SOLO_RULES].includes(snapshot.arenaRoute) ? snapshot.arenaRoute
+    run.arenaRoute = Number.isInteger(snapshot.arenaRoute) && [3, 4, 5, SECTION_RULES, STREAM_RULES, RANDOM_BOSS_RULES, SOLO_RULES].includes(snapshot.arenaRoute) ? snapshot.arenaRoute
       : snapshot.legacyBossRoute === true || snapshot.rules < 4 || snapshot.rules === undefined ? 3 : snapshot.rules === 4 ? 4 : 5;
-    if (snapshot.rules !== SOLO_RULES) run.grace = Math.max(run.grace, 0.8);
+    if (!(snapshot.rules >= RANDOM_BOSS_RULES)) run.grace = Math.max(run.grace, 0.8);
     const sites = arenaSites(run.arenaRoute);
     const passed = sites.filter(site => site < snapshot.distance - 0.01).length;
     run.nextBoss = Number.isInteger(snapshot.nextBoss)
       ? clamp(snapshot.nextBoss, snapshot.rules >= SECTION_RULES ? 0 : passed, BOSSES.length) : passed;
-    run.boss = restoreBoss(snapshot.boss, run.distance, sites[snapshot.boss?.index], snapshot.rules >= SECTION_RULES, snapshot.rules >= STREAM_RULES, snapshot.rules >= SOLO_RULES ? run.seed : 0);
+    run.boss = restoreBoss(snapshot.boss, run.distance, sites[snapshot.boss?.index], snapshot.rules >= SECTION_RULES, snapshot.rules >= STREAM_RULES, snapshot.rules >= RANDOM_BOSS_RULES ? run.seed : 0);
     if (run.boss) {
       run.nextBoss = run.boss.index;
-      if (snapshot.rules !== SOLO_RULES) {
+      if (!(snapshot.rules >= RANDOM_BOSS_RULES)) {
         run.boss.streaming = true;
         run.boss.patternSeed = run.seed;
         run.boss.beat = 0;
@@ -218,7 +223,7 @@ export function loadRun(snapshot, mode = "solo") {
       }
     }
 
-    if (snapshot.rules === SOLO_RULES && Number.isFinite(snapshot.bossExit) && snapshot.bossExit >= 0 && snapshot.bossExit <= run.distance + CHASE_EXIT) run.bossExit = snapshot.bossExit;
+    if (snapshot.rules >= RANDOM_BOSS_RULES && Number.isFinite(snapshot.bossExit) && snapshot.bossExit >= 0 && snapshot.bossExit <= run.distance + CHASE_EXIT) run.bossExit = snapshot.bossExit;
     run.bossWins = Number.isInteger(snapshot.bossWins) ? clamp(snapshot.bossWins, 0, run.nextBoss) : 0;
     if (snapshot.death && typeof snapshot.death.kind === "string" && Number.isFinite(snapshot.death.age)) {
       const kind = snapshot.death.kind.slice(0, 18);
@@ -237,15 +242,24 @@ export function applyOpeningBoost(run, id) {
   if (boost.launch) run.launch = { kind: boost.launch.kind, end: boost.launch.distance };
 }
 
+function releaseRiver(run, notify) {
+  run.riverLift = run.y;
+  run.boostJump = false;
+  run.jump = JUMP_TIME;
+  run.ride = null;
+  run.riverJumpQueued = false;
+  notify("ride");
+}
+
 export function control(run, move, notify = () => {}) {
   if (!run || run.done || run.death || run.launch && move !== "left" && move !== "right") return false;
   if (run.ride?.kind === "river" && move === "jump") {
-    if (run.distance - run.ride.d < RIVER_RELEASE) return false;
-    run.riverLift = run.y;
-    run.boostJump = false;
-    run.jump = JUMP_TIME;
-    run.ride = null;
-    notify("ride");
+    const timing = riverTiming(run.rules);
+    const offset = run.distance - run.ride.d;
+    if (offset < timing.release) {
+      if (run.riverJumpQueued || offset < timing.release - timing.buffer) return false;
+      run.riverJumpQueued = true;
+    } else releaseRiver(run, notify);
     return true;
   }
   if (run.ride && !["river", "rail"].includes(run.ride.kind)) return false;
@@ -409,6 +423,7 @@ function playBossRoute(run, previous, notify) {
 
 function finishSection(run, section, notify) {
   run.ride = null;
+  run.riverJumpQueued = false;
   const assisted = run.riverAssist;
   run.riverAssist = false;
   if (section.kind === "rail") run.y = 0;
@@ -426,11 +441,13 @@ function finishSection(run, section, notify) {
 }
 
 function crossRiver(run, section, previous, notify) {
+  const timing = riverTiming(run.rules);
   if (run.ride?.kind === "river") {
     const offset = run.distance - run.ride.d;
-    if (offset <= RIVER_SWING) {
+    if (offset <= timing.swing) {
       run.x = LANES[run.ride.lane];
-      run.y = swingHeight(offset);
+      run.y = swingHeight(offset, timing.swing);
+      if (run.riverJumpQueued && offset >= timing.release) releaseRiver(run, notify);
     } else {
       run.ride = null;
       damage(run, "river", notify);
@@ -438,7 +455,7 @@ function crossRiver(run, section, previous, notify) {
     }
   }
   if (!run.ride && !run.death) {
-    const next = section.vines.find(rope => run.hit[rope.id] == null && run.distance <= rope.d + RIVER_GRAB_FORWARD);
+    const next = section.vines.find(rope => run.hit[rope.id] == null && run.distance <= rope.d + timing.forward);
     if (run.riverAssist) {
       if (next) {
         run.lane = next.lane;
@@ -446,19 +463,21 @@ function crossRiver(run, section, previous, notify) {
       }
       run.y = 1.51;
     }
-    if (next && run.distance >= next.d - RIVER_GRAB_BACK && (run.jump > 0 || run.riverAssist)
-      && Math.abs(run.x - LANES[next.lane]) < 1.03 && run.y >= 0.49 && run.y <= 3.85) {
+    if (next && run.distance >= next.d - timing.back && (run.jump > 0 || run.riverAssist)
+      && Math.abs(run.x - LANES[next.lane]) < timing.reach && run.y >= timing.height && run.y <= 3.85) {
       run.ride = { ...next, kind: "river" };
       run.hit[next.id] = next.d;
       run.lane = next.lane;
       run.x = LANES[next.lane];
       run.jump = run.slide = run.riverLift = 0;
       run.riverAssist = false;
-      run.y = swingHeight(run.distance - next.d);
+      run.y = swingHeight(run.distance - next.d, timing.swing);
       notify("ride");
     }
+    const firstRope = next?.id === section.vines[0].id;
+    const bank = section.start + (firstRope ? timing.lip : 0);
     if (!run.ride && !run.riverAssist && previous < section.end && run.distance <= section.end
-      && run.distance >= section.start && run.y < 0.54) {
+      && run.distance >= bank && run.y < (run.rules >= RIVER_RULES ? timing.height : 0.54)) {
       damage(run, "river", notify);
       run.riverAssist = run.mode === "race";
     }
@@ -586,11 +605,11 @@ export function stepRun(run, dt, notify = () => {}) {
     if (run.death || run.done) return;
   }
   if (section && previous < section.start - 18 && run.distance >= section.start - 18) notify("section-enter", section.kind);
-  if (section && previous < section.end && run.distance >= section.start - 5) {
+  if (section && previous < section.end && run.distance >= section.start - (section.kind === "river" ? riverTiming(run.rules).approach : 5)) {
     if (section.kind === "river") crossRiver(run, section, previous, notify);
     else rideRails(run, section, previous, notify);
     if (run.death) return;
-    pickups(run, { powers: [], fossils: sectionFossils(section) }, previous, notify);
+    pickups(run, { powers: [], fossils: sectionFossils(section, run.rules) }, previous, notify);
     if (run.distance >= section.end) finishSection(run, section, notify);
     if (run.done) return;
   } else if (run.rules < SECTION_RULES && run.ride) {
@@ -614,7 +633,7 @@ export function stepRun(run, dt, notify = () => {}) {
   if (!run.boss && site !== undefined && run.distance >= site && run.distance >= run.bossExit) {
     if (run.rules < SECTION_RULES) run.distance = site;
     run.ride = null;
-    run.boss = beginBoss(run.nextBoss, run.rules >= SECTION_RULES ? cruisingSpeed(run.distance) : 0, run.rules >= STREAM_RULES, run.rules >= SOLO_RULES ? run.seed : 0);
+    run.boss = beginBoss(run.nextBoss, run.rules >= SECTION_RULES ? cruisingSpeed(run.distance) : 0, run.rules >= STREAM_RULES, run.rules >= RANDOM_BOSS_RULES ? run.seed : 0);
     notify("boss-enter", BOSSES[run.nextBoss]);
     if (run.rules < STREAM_RULES) return;
   }

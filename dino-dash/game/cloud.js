@@ -1,8 +1,9 @@
 import { cloudConfig } from "./cloud-config.js?v=9";
-import { hashMoves } from "./replay.js?v=12";
+import { hashMoves, RANK_RULES } from "./replay.js?v=14";
 
 const SESSION_KEY = "dino-dash.cloud.v1";
 const OUTBOX_KEY = "dino-dash.rank-outbox.v1";
+const closedTicket = error => [400, 403, 404, 409, 422].includes(error.status);
 
 class CloudError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -36,6 +37,7 @@ export class Cloud {
     this.pending = read(OUTBOX_KEY, []);
     if (!Array.isArray(this.pending)) this.pending = [];
     this.syncedSnapshot = "";
+    this.sending = new Map();
   }
 
   get joined() { return Boolean(this.enabled && this.saved?.project === this.url && this.saved?.refresh_token && this.saved?.id); }
@@ -132,11 +134,17 @@ export class Cloud {
   }
 
   async start() {
-    if (this.jobs().filter(item => item.project === this.url && item.user === this.saved.id).length >= 8) {
+    if (this.pendingCount() >= 8) {
       throw new CloudError(429, "待上报的成绩较多，请先刷新排行榜重试上传。");
     }
-    const ticket = await this.signed("/rest/v1/rpc/dino_start_run_v4", {});
-    if (!ticket?.id || !Number.isInteger(ticket?.seed)) throw new CloudError(503, "排位赛道暂不可用。");
+    let ticket;
+    try {
+      ticket = await this.signed("/rest/v1/rpc/dino_start_run_v5", {});
+    } catch (error) {
+      if (error.status !== 404) throw error;
+      ticket = { ...await this.signed("/rest/v1/rpc/dino_start_run_v4", {}), version: 4 };
+    }
+    if (!ticket?.id || !Number.isInteger(ticket.seed) || !Object.hasOwn(RANK_RULES, ticket.version)) throw new CloudError(503, "排位赛道暂不可用。");
     return ticket;
   }
 
@@ -157,16 +165,23 @@ export class Cloud {
     return applied;
   }
 
-  async submit(ticket, ticks, moves, nick) {
+  async submit(ticket, ticks, moves, nick, proof, inFlight) {
     const job = { ticket, ticks, moves, nick };
-    await this.editJobs(list => [...list, { project: this.url, user: this.saved.id, job }]);
-    return this.send(job);
+    const entry = { project: this.url, user: this.saved.id, job, proof: proof && { tick: proof.tick, count: proof.moves.length } };
+    await this.editJobs(list => list.some(item => item.job?.ticket === ticket) ? list : [...list, entry]);
+    return this.send(entry, inFlight);
   }
 
   jobs() {
     const stored = read(OUTBOX_KEY, this.pending);
     return Array.isArray(stored) ? stored : [];
   }
+
+  ownJobs() {
+    return this.joined ? this.jobs().filter(item => item.project === this.url && item.user === this.saved.id) : [];
+  }
+
+  pendingCount() { return this.ownJobs().length; }
 
   async editJobs(update) {
     await lock(OUTBOX_KEY, () => {
@@ -175,23 +190,42 @@ export class Cloud {
     });
   }
 
-  async send(job) {
+  send(entry, inFlight) {
+    const ticket = entry.job.ticket;
+    if (!this.sending.has(ticket)) {
+      const sending = this.sendOnce(entry, inFlight).finally(() => this.sending.delete(ticket));
+      this.sending.set(ticket, sending);
+    }
+    return this.sending.get(ticket);
+  }
+
+  async sendOnce({ job, proof }, inFlight) {
     const remove = () => this.editJobs(list => list.filter(item => item.job?.ticket !== job.ticket));
     try {
+      if (proof && !await inFlight) {
+        try {
+          await this.checkpoint(job.ticket, proof.tick, job.moves.slice(0, proof.count));
+        } catch (error) {
+          if (!closedTicket(error)) throw error;
+        }
+      }
       const accepted = await this.signed("/functions/v1/dino-rank", job);
       await remove();
       return accepted;
     } catch (error) {
-      if ([400, 403, 404, 409, 422].includes(error.status)) await remove();
+      if (closedTicket(error)) await remove();
       throw error;
     }
   }
 
-  async flush() {
-    if (!this.joined) return;
-    for (const item of this.jobs()) {
-      if (item.project !== this.url || item.user !== this.saved.id) continue;
-      try { await this.send(item.job); } catch (error) { if (!error.status || error.status >= 429) return; }
+  async flush(onAccepted = () => {}) {
+    for (const item of this.ownJobs()) {
+      try {
+        const accepted = await this.send(item);
+        onAccepted(item.job.ticket, accepted);
+      } catch (error) {
+        if (!closedTicket(error)) return;
+      }
     }
   }
 }

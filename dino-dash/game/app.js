@@ -1,15 +1,15 @@
 import { biomeAt, BIOMES } from "./course.js?v=10";
-import { applyOpeningBoost, control, normalizeRaceRules, loadRun, newPractice, newRun, newSectionPractice, RACE_METRES, RACE_RULES, runScore, stepRun, tune } from "./runner.js?v=12";
+import { applyOpeningBoost, control, normalizeRaceRules, loadRun, newPractice, newRun, newSectionPractice, RACE_METRES, RACE_RULES, runScore, stepRun, tune } from "./runner.js?v=14";
 import { ACCESSORIES, buyOpeningBoost, chestPrice, OPENING_BOOSTS, fragmentBalance, openChests, owns, packLook, SKINS, unlock, unpackLook, WARDROBE } from "./catalog.js?v=13";
 import { BOSSES, POWERUPS } from "./challenge.js?v=12";
-import { Scene } from "./scene.js?v=13";
-import { normalizeSave, readSession, Save, writeSession } from "./storage.js?v=12";
-import { RoomClient } from "./network.js?v=12";
+import { Scene } from "./scene.js?v=14";
+import { normalizeSave, readSession, Save, writeSession } from "./storage.js?v=14";
+import { RoomClient } from "./network.js?v=14";
 import { Sound } from "./audio.js?v=11";
-import { Cloud } from "./cloud.js?v=12";
+import { Cloud } from "./cloud.js?v=14";
 import { HumanCheck } from "./human-check.js?v=7";
-import { MAX_MOVES, MOVES_PER_TICK, PROOF_INTERVAL, RANK_MOVES, RANK_STEP, RANK_TICKS, RANK_RULES, REPLAY_VERSION } from "./replay.js?v=12";
-import { sectionLesson } from "./sections.js?v=12";
+import { MAX_MOVES, MOVES_PER_TICK, PROOF_INTERVAL, RANK_MOVES, RANK_STEP, RANK_TICKS, RANK_RULES } from "./replay.js?v=14";
+import { sectionLesson } from "./sections.js?v=14";
 
 const RACE_SAVE = "dino-dash.race.v1";
 const CODE_FORMAT = /^[2-9A-HJ-NP-Z]{6}$/;
@@ -56,6 +56,8 @@ export function mount(root, { roomTransport = null } = {}) {
   let accountSession = 0;
   let nicknamePending = false;
   let cloudTimer;
+  let rankRetryTimer;
+  let rankFlush;
   let captchaToken = "";
   let race = null;
   let selected = save.current.skin;
@@ -159,11 +161,30 @@ export function mount(root, { roomTransport = null } = {}) {
     if (!cloud.joined || cloudTimer) return;
     cloudTimer = setTimeout(async () => {
       const profile = save.current;
-      let throttled = false;
-      try { throttled = await cloud.snapshot(profile) === false; } catch { /* A later save or reconnect can retry. */ }
+      let retry = 0;
+      try { if (await cloud.snapshot(profile) === false) retry = 2700; }
+      catch (error) { if (!error.status || error.status >= 429) retry = 15000; }
       cloudTimer = null;
-      if (throttled || profile !== save.current) queueCloudSnapshot();
+      if (retry || profile !== save.current) queueCloudSnapshot(retry || 2700);
     }, delay);
+  }
+
+  function retryRankUploads() {
+    if (rankFlush) return rankFlush;
+    clearTimeout(rankRetryTimer);
+    rankFlush = cloud.flush(showRankResult).finally(() => {
+      rankFlush = null;
+      if (cloud.pendingCount() && !document.hidden && navigator.onLine) {
+        rankRetryTimer = setTimeout(retryRankUploads, 15000);
+      }
+    });
+    return rankFlush;
+  }
+
+  function showRankResult(ticket, result) {
+    if (ranked?.id === ticket && panel === "end") {
+      text("rank-submit-status", `排位已上报 · ${result.score} 分 · +${result.fossils} 化石`);
+    }
   }
 
   function rememberName(nick, persist = false) {
@@ -183,6 +204,7 @@ export function mount(root, { roomTransport = null } = {}) {
     show("account-form", cloud.joined);
     show("rank-human-check", verify);
     show("rank-join", verify);
+    show("account-rank-start", cloud.joined && !!cloudName);
     text("account-state", cloud.joined ? (cloudName ? `当前昵称 · ${cloudName}` : "设置一个全服唯一的昵称。")
       : cloud.enabled ? "通过真人验证即可创建本设备的账户。上榜会公开昵称和成绩。" : "云端账户暂未开放。");
     nodes["rank-join"].disabled = !verify || !rankSignupOpen || !captchaToken;
@@ -243,6 +265,9 @@ export function mount(root, { roomTransport = null } = {}) {
     const fossils = boardKind === "fossils";
     for (const button of root.querySelectorAll("[data-board]")) button.setAttribute("aria-pressed", String(button.dataset.board === boardKind));
     show("fossil-board-note", fossils);
+    show("rank-personal", fossils);
+    const waiting = cloud.pendingCount();
+    text("rank-personal", `本地余额 ${save.current.fossils} 枚${waiting ? ` · ${waiting} 局待上传` : ""}`);
     show("rank-table", false);
     show("rank-distance-col", !fossils);
     text("rank-main-col", fossils ? "化石" : "分数");
@@ -252,17 +277,29 @@ export function mount(root, { roomTransport = null } = {}) {
       text("rank-status", "排行榜待开通。仍可正常游玩单人和联机。");
       return;
     }
-    if (cloud.joined) {
-      void cloud.profile().then(profile => {
-        if (request !== rankRequest || panel !== "rank") return;
-        rememberName(profile?.nick);
-        rankControls();
-      }).catch(() => {});
-    }
     text("rank-status", "正在读取云端成绩…");
+    nodes["rank-refresh"].disabled = true;
     try {
-      const rows = await cloud.board(boardKind);
+      await retryRankUploads();
+      const [rows, profile] = await Promise.all([
+        cloud.board(fossils ? "fossils" : "score"),
+        cloud.joined ? cloud.profile().catch(() => null) : null,
+      ]);
       if (request !== rankRequest || panel !== "rank") return;
+      if (profile) rememberName(profile.nick);
+      rankControls();
+      if (fossils && cloud.joined) {
+        const verified = profile?.rankedFossils ?? rows.find(row => row.nick === cloudName)?.fossils;
+        const pending = cloud.pendingCount();
+        const totals = [`本地余额 ${save.current.fossils} 枚`];
+        if (profile && Object.hasOwn(profile, "walletFossils") && profile.walletFossils !== save.current.fossils) {
+          totals.push("余额同步中");
+          queueCloudSnapshot();
+        }
+        if (Number.isFinite(verified)) totals.push(`排位已入榜 ${verified} 枚`);
+        if (pending) totals.push(`${pending} 局待上传`);
+        text("rank-personal", totals.join(" · "));
+      }
       nodes["rank-rows"].replaceChildren(...rows.map(row => {
         const line = document.createElement("tr");
         const values = [row.place, row.nick, fossils ? `${row.fossils} 枚` : row.score];
@@ -278,6 +315,8 @@ export function mount(root, { roomTransport = null } = {}) {
       text("rank-status", rows.length ? "" : fossils ? "还没有可计入的排位化石。" : "还没有通过校验的排位成绩。");
     } catch (error) {
       if (request === rankRequest && panel === "rank") text("rank-status", error.status ? error.message : "无法连接排行榜，请重试。");
+    } finally {
+      if (request === rankRequest) nodes["rank-refresh"].disabled = false;
     }
   }
 
@@ -298,24 +337,36 @@ export function mount(root, { roomTransport = null } = {}) {
   }
 
   async function launchRanked() {
-    if (mode === "race" || client.session || launching || !cloud.joined) return;
-    if (!cloudName) { openPanel("account"); return; }
+    if (mode === "race" || client.session || launching) return;
+    if (!cloud.enabled) { openPanel("rank"); return; }
+    if (!cloud.joined) { openPanel("account"); return; }
     launching = true;
-    nodes["rank-start"].disabled = true;
-    text("rank-status", "正在领取排位赛道…");
+    for (const button of buttons("rank-start")) button.disabled = true;
+    const status = { rank: "rank-status", account: "account-status", end: "rank-submit-status" }[panel] || "rank-launch-status";
+    text(status, "正在领取排位赛道…");
     try {
-      await cloud.flush();
+      if (!cloudName) {
+        rememberName((await cloud.profile())?.nick);
+        if (!cloudName) { openPanel("account"); return; }
+      }
+      void retryRankUploads();
       const ticket = await cloud.start();
       const nick = cloudName;
-      beginSolo(newRun(ticket.seed, "solo", RANK_RULES[REPLAY_VERSION]), 2020, { id: ticket.id, nick, ticks: 0, moves: [], carry: 0, lastInput: -1, sameTick: 0,
-        nextProof: PROOF_INTERVAL, proofPending: false });
+      beginSolo(newRun(ticket.seed, "solo", RANK_RULES[ticket.version]), 2020, { id: ticket.id, nick, ticks: 0, moves: [], carry: 0, lastInput: -1, sameTick: 0,
+        nextProof: PROOF_INTERVAL, proof: null, proofPending: null });
     } catch (error) {
-      if (panel !== "rank") openPanel("rank");
+      if (!cloud.joined) {
+        openPanel("account");
+      } else {
+        const message = error.status ? error.message : "暂时无法领取赛道，请重试。";
+        if (status === "rank-launch-status") displayToast(message);
+        else text(status, message);
+      }
       rankControls();
-      text("rank-status", error.status ? error.message : "暂时无法领取赛道，请重试。");
     } finally {
       launching = false;
-      nodes["rank-start"].disabled = false;
+      for (const button of buttons("rank-start")) button.disabled = false;
+      text("rank-launch-status", "");
     }
   }
 
@@ -329,10 +380,17 @@ export function mount(root, { roomTransport = null } = {}) {
     }
     if (!run.done && !ranked.proofPending && ranked.ticks >= ranked.nextProof) {
       const attempt = ranked;
-      const tick = attempt.ticks;
-      attempt.proofPending = true;
-      cloud.checkpoint(attempt.id, tick, attempt.moves).then(() => { attempt.nextProof = tick + PROOF_INTERVAL; })
-        .catch(() => { attempt.nextProof = tick + 350; }).finally(() => { attempt.proofPending = false; });
+      const proof = attempt.proof ??= { tick: attempt.ticks, moves: attempt.moves.slice() };
+      attempt.proofPending = cloud.checkpoint(attempt.id, proof.tick, proof.moves).then(() => {
+        attempt.proof = null;
+        attempt.nextProof = proof.tick + PROOF_INTERVAL;
+        return true;
+      }).catch(error => {
+        const retryable = !error.status || error.status >= 429;
+        if (!retryable) attempt.proof = null;
+        attempt.nextProof = retryable ? attempt.ticks + 350 : proof.tick + PROOF_INTERVAL;
+        return false;
+      }).finally(() => { attempt.proofPending = null; });
     }
   }
 
@@ -359,6 +417,7 @@ export function mount(root, { roomTransport = null } = {}) {
     const canPlay = next !== "menu";
     root.classList.toggle("is-playing", canPlay);
     show("race-status", next === "race");
+    show("ranked-badge", next === "solo" && !!ranked);
     if (canPlay) scene ||= new Scene(gameCanvas);
     for (const btn of buttons("pause")) {
       btn.setAttribute("aria-label", next === "race" ? "离开竞速" : "暂停");
@@ -493,7 +552,8 @@ export function mount(root, { roomTransport = null } = {}) {
     pausedAt = performance.now();
     show("practice-retry", run.practice);
     show("end-retry", !run.practice);
-    show("rank-submit-status", !!ranked);
+    show("rank-submit-status", !!ranked || !run.practice && cloud.enabled);
+    if (!ranked) text("rank-submit-status", "单人局 · 未计入排行榜");
     if (run.practice) {
       text("end-title", run.won ? "挑战成功" : "挑战结束");
       nodes["end-distance"].parentElement.hidden = true;
@@ -526,10 +586,11 @@ export function mount(root, { roomTransport = null } = {}) {
     if (ranked) {
       const result = ranked;
       text("rank-submit-status", "正在校验排位成绩…");
-      cloud.submit(result.id, result.ticks, result.moves, result.nick).then(accepted => {
-        if (ranked === result) text("rank-submit-status", `已上报排行榜 · ${accepted.score} 分`);
+      cloud.submit(result.id, result.ticks, result.moves, result.nick, result.proof, result.proofPending).then(accepted => {
+        showRankResult(result.id, accepted);
       }).catch(error => {
-        if (ranked === result) text("rank-submit-status", error.status && error.status < 429 ? error.message : "暂未上报，重新连接后会重试。");
+        if (ranked === result) text("rank-submit-status", error.status && error.status < 429 ? error.message : "上传暂缓，游戏会自动重试。");
+        if (cloud.pendingCount()) void retryRankUploads();
       });
     }
   }
@@ -1165,7 +1226,7 @@ export function mount(root, { roomTransport = null } = {}) {
       case "resume": resumeSolo(); break;
       case "account": if (mode === "menu" && !client.session) openPanel("account"); break;
       case "rank": if (mode === "menu" && !client.session) openPanel("rank"); break;
-      case "rank-refresh": void cloud.flush().then(refreshBoard); break;
+      case "rank-refresh": void refreshBoard(); break;
       case "rank-join": void joinRank(); break;
       case "rank-start": void launchRanked(); break;
       case "close": closePanel(); break;
@@ -1550,13 +1611,17 @@ export function mount(root, { roomTransport = null } = {}) {
     on(canvas, "webglcontextlost", event => event.preventDefault());
     on(canvas, "webglcontextrestored", replace);
   }
-  on(window, "online", () => { client.nudge(); queueCloudSnapshot(); void cloud.flush(); });
+  on(window, "online", () => { client.nudge(); queueCloudSnapshot(); void retryRankUploads(); });
   on(window, "offline", () => { if (client.session) client.setLink("reconnecting"); });
   on(document, "visibilitychange", () => {
     if (document.hidden) sound.update(null);
     if (document.hidden && mode === "solo" && !paused && !run?.done) pauseSolo();
     if (document.hidden && mode === "race") snapshotRace();
-    if (!document.hidden) client.nudge();
+    if (!document.hidden) {
+      client.nudge();
+      queueCloudSnapshot();
+      void retryRankUploads();
+    }
   });
   on(window, "pagehide", () => {
     if (mode === "solo" && !run?.done) snapshotSolo();
@@ -1578,7 +1643,7 @@ export function mount(root, { roomTransport = null } = {}) {
   buildGuide();
   buildPowerHud();
   updateMenu();
-  void cloud.flush();
+  void retryRankUploads();
   const incoming = new URL(location.href).searchParams.get("room")?.toUpperCase() || "";
   const remembered = client.pending();
   if (remembered && CODE_FORMAT.test(remembered.code) && (!incoming || incoming === remembered.code)) {
@@ -1600,6 +1665,7 @@ export function mount(root, { roomTransport = null } = {}) {
     closet?.dispose();
     clearTimeout(toastTimer);
     clearTimeout(cloudTimer);
+    clearTimeout(rankRetryTimer);
     clearTimeout(feedbackTimer);
     clearTimeout(biomeTimer);
     drawFinish?.();

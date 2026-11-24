@@ -6,6 +6,16 @@ export const RIVER_RELEASE = 9.5;
 export const RIVER_GRAB_BACK = 3.2;
 export const RIVER_GRAB_FORWARD = 3.6;
 export const SECTION_BUFFER = 19;
+export const RIVER_RULES = 9;
+
+const originalRiver = Object.freeze({ swing: RIVER_SWING, release: RIVER_RELEASE, back: RIVER_GRAB_BACK,
+  forward: RIVER_GRAB_FORWARD, reach: 1.03, height: 0.49, approach: 5, lip: 0, buffer: 0 });
+const forgivingRiver = Object.freeze({ swing: 19, release: 9, back: 8.1,
+  forward: 6.2, reach: 1.42, height: 0.28, approach: 8, lip: 1.8, buffer: 5 });
+
+export function riverTiming(rules) {
+  return rules >= RIVER_RULES ? forgivingRiver : originalRiver;
+}
 
 export function sectionsNear(seed, distance, ahead = 0, behind = 0, mode = "solo") {
   const length = biomeLength(SECTION_RULES, mode);
@@ -38,14 +48,14 @@ export function sectionsNear(seed, distance, ahead = 0, behind = 0, mode = "solo
   return sections;
 }
 
-export function swingHeight(position) {
-  const progress = Math.min(1, Math.max(0, position / RIVER_SWING));
+export function swingHeight(position, swing = RIVER_SWING) {
+  const progress = Math.min(1, Math.max(0, position / swing));
   return 1.03 + Math.sin(Math.PI * progress) * 1.41 + progress * 0.53;
 }
 
-export function sectionFossils(section) {
+export function sectionFossils(section, rules) {
   if (section.kind === "river") return section.vines.flatMap((rope, i) => [4, 9].map(offset => ({
-    d: rope.d + offset, lane: rope.lane, y: swingHeight(offset) + 0.72, id: `${section.id}-${i}-${offset}`,
+    d: rope.d + offset, lane: rope.lane, y: swingHeight(offset, riverTiming(rules).swing) + 0.72, id: `${section.id}-${i}-${offset}`,
   })));
   return [{ lane: 1, d: section.start }, ...section.forks].flatMap((fork, i) => [2, 6, 10].map(offset => ({
     d: fork.d + offset, lane: fork.lane, y: 1.31, id: `${section.id}-${i}-${offset}`,
@@ -64,12 +74,13 @@ export function sectionLesson(run, completed) {
     const held = run.ride?.kind === "river" ? run.ride : null;
     if (!held && run.distance < section.start - 1) {
       if (run.lane !== 1) return "先到中间";
-      return run.distance < section.start - 7 ? "准备起跳接藤" : "现在上划 · 接藤";
+      return run.distance < section.start - (run.rules >= RIVER_RULES ? 10 : 7) ? "准备起跳接藤" : "现在上划 · 接藤";
     }
     if (!held) return "保持方向 · 接住下一根";
     const next = section.vines[section.vines.findIndex(rope => rope.id === held.id) + 1];
     if (next && run.lane !== next.lane) return `向${side(run.lane, next.lane)}划 · 对准下一根`;
-    if (run.distance - held.d < RIVER_RELEASE) return "等待握点亮起";
+    const timing = riverTiming(run.rules);
+    if (run.distance - held.d < timing.release - timing.buffer) return "等待握点亮起";
     return next ? "现在上划 · 跃向下一根" : "现在上划 · 跃上河岸";
   }
   if (run.ride?.kind !== "rail") return "对准中间 · 上矿车";

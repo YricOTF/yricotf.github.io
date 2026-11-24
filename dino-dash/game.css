@@ -153,7 +153,9 @@ button:focus-visible, input:focus-visible { outline: 2px solid #343730; outline-
   box-shadow: inset 0 -3px #e4cf96;
 }
 .hero-actions .rank-entry:hover { background: #efdda5; }
-.rank-entry .icon-trophy { width: 18px; height: 18px; }
+.rank-entry .icon-trophy, .rank-board-entry .icon-trophy { width: 17px; height: 17px; }
+#rank-launch-status { margin: 6px 0 0; }
+#rank-launch-status:empty { margin: 0; }
 .square-button { min-height: 36px; padding: 0; width: 36px; }
 .square-button .icon { width: 12px; height: 12px; }
 .text-button {
@@ -268,6 +270,7 @@ kbd.space-key { min-width: 30px; font-size: 0.72rem; }
 .end-score { margin: 9px 0 3px; color: #353b32; font: 1.52rem/1.2 var(--pixel); }
 .hud .square-button { pointer-events: auto; }
 .race-status { max-width: 178px; width: 100%; }
+.ranked-badge { padding: 5px 9px; border: 1px solid #816534; background: #f4e7bd; color: #493619; font-size: 0.8rem; }
 #race-clock { margin: 2px 0; font-family: var(--mono); color: #252622; }
 #race-standings { display: grid; gap: 3px; font-size: 0.78rem; }
 .standing { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
@@ -420,7 +423,6 @@ kbd.space-key { min-width: 30px; font-size: 0.72rem; }
   .hero-desc { font-size: 0.91rem; margin-bottom: 16px; }
   .hero-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 360px; margin-inline: auto; }
   .hero-actions .button { min-height: 43px; }
-  .hero-actions .rank-entry { grid-column: 1 / -1; }
   .hero-world { position: relative; width: 100%; height: clamp(175px, 55vw, 300px); margin-top: 3px; }
   .pixel-sun { top: 9%; right: 23%; width: 42px; }
   .stage:has(.play-stage:not([hidden])) { min-height: max(360px, var(--stage-height)); }
@@ -721,6 +723,7 @@ kbd.space-key { min-width: 30px; font-size: 0.72rem; }
 
 .rank-tabs { margin-bottom: 12px; }
 .rank-tabs [aria-pressed="true"] { border-color: #7b6a46; background: #f2e7c6; color: #493619; }
+.rank-personal { margin: 8px 0; font-variant-numeric: tabular-nums; }
 .practice-heading { margin: 18px 0 8px; font-size: .95rem; }
 .lesson-hud {
   position: absolute; z-index: 3; inset: auto 8px clamp(85px, 13vh, 126px);

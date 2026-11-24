@@ -1,6 +1,6 @@
-import { PeerRoom, PeerRoomError } from "./peer-model.js?v=12";
-import { readSession, writeSession } from "./storage.js?v=12";
-import { connectRelay, RelayHost } from "./relay.js?v=12";
+import { PeerRoom, PeerRoomError } from "./peer-model.js?v=14";
+import { readSession, writeSession } from "./storage.js?v=14";
+import { connectRelay, RelayHost } from "./relay.js?v=14";
 
 const ROOM_KEY = "dino-dash.peer-host.v1";
 const ID_PREFIX = "yricotf-dino-dash-v1-";
