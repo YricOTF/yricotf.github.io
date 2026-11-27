@@ -6,8 +6,8 @@ import { Scene } from "./scene.js?v=16";
 import { normalizeSave, readSession, Save, writeSession } from "./storage.js?v=16";
 import { RoomClient } from "./network.js?v=16";
 import { Sound } from "./audio.js?v=11";
-import { Cloud } from "./cloud.js?v=17";
-import { HumanCheck } from "./human-check.js?v=7";
+import { Cloud } from "./cloud.js?v=18";
+import { HumanCheck } from "./human-check.js?v=18";
 import { MAX_MOVES, MOVES_PER_TICK, PROOF_HEADROOM, PROOF_INTERVAL, RANK_MOVES, RANK_STEP, RANK_TICKS, RANK_RULES } from "./replay.js?v=16";
 import { sectionLesson } from "./sections.js?v=16";
 
@@ -52,6 +52,8 @@ export function mount(root, { roomTransport = null } = {}) {
   let rankRequest = 0;
   let historyRequest = 0;
   let appealTicket = "";
+  let appealToken = "";
+  let appealBusy = false;
   let historyReturn = "rank";
   let boardKind = "score";
   let rankSignupOpen = null;
@@ -107,6 +109,11 @@ export function mount(root, { roomTransport = null } = {}) {
     nodes["rank-join"].disabled = !token;
     text("rank-captcha-status", message);
   });
+  const appealCheck = new HumanCheck(nodes["rank-appeal-captcha"], (token, message) => {
+    appealToken = token;
+    nodes["rank-appeal-send"].disabled = !token || appealBusy;
+    text("rank-appeal-captcha-status", message);
+  });
 
   const client = new RoomClient(onRoom, onLink, getSample, roomTransport);
 
@@ -139,6 +146,7 @@ export function mount(root, { roomTransport = null } = {}) {
 
   function openPanel(name) {
     if (panel === "account" && name !== "account") humanCheck.hide();
+    if (panel === "rank-history" && name !== "rank-history") closeAppeal();
     panel = name;
     for (const section of panels) setHidden(section, section.dataset.panel !== name);
     const heading = panels.find(section => section.dataset.panel === name)?.querySelector("h2");
@@ -306,7 +314,7 @@ export function mount(root, { roomTransport = null } = {}) {
       }
       nodes["rank-rows"].replaceChildren(...rows.map(row => {
         const line = document.createElement("tr");
-        const values = [row.place, row.nick, fossils ? `${row.fossils} 枚` : row.score];
+        const values = [row.place, row.reviewed ? `${row.nick} · 人工复核` : row.nick, fossils ? `${row.fossils} 枚` : row.score];
         if (!fossils) values.push(`${row.distance} m`);
         for (const value of values) {
           const cell = document.createElement("td");
@@ -342,8 +350,7 @@ export function mount(root, { roomTransport = null } = {}) {
 
   async function refreshRankHistory(message = "") {
     const request = ++historyRequest;
-    appealTicket = "";
-    show("rank-appeal-form", false);
+    closeAppeal();
     const list = nodes["rank-history-rows"];
     list.replaceChildren();
     text("rank-history-status", message || "正在读取排位记录…");
@@ -367,7 +374,7 @@ export function mount(root, { roomTransport = null } = {}) {
         heading.textContent = score === undefined ? time : `${score} 分 · ${distance} 米 · ${time}`;
         const failure = { checkpoint: "在线校验点不完整", replay: "重放校验失败", timing: "排位票据时限或计时校验失败" }[row.rejection];
         const review = { pending: "申诉待审核", approved: "申诉已通过", rejected: "申诉未通过" }[row.appeal];
-        detail.textContent = [row.finished_at ? "已入榜" : failure ?? "待上传", review, row.reply,
+        detail.textContent = [row.reviewed ? "人工复核入榜" : row.finished_at ? "已入榜" : failure ?? "待上传", review, row.reply,
           !row.finished_at && row.rejection && !local ? "本机没有完整操作记录" : ""].filter(Boolean).join(" · ");
         if (!row.finished_at) {
           const retry = document.createElement("button");
@@ -393,12 +400,7 @@ export function mount(root, { roomTransport = null } = {}) {
             appeal.type = "button";
             appeal.className = "button compact";
             appeal.textContent = "申诉";
-            appeal.addEventListener("click", () => {
-              appealTicket = row.id;
-              nodes["rank-appeal-message"].value = "";
-              show("rank-appeal-form", true);
-              nodes["rank-appeal-message"].focus();
-            });
+            appeal.addEventListener("click", () => void openAppeal(row.id));
             controls.append(appeal);
           }
         }
@@ -411,19 +413,43 @@ export function mount(root, { roomTransport = null } = {}) {
     }
   }
 
+  function closeAppeal() {
+    appealTicket = "";
+    appealCheck.hide();
+    show("rank-appeal-form", false);
+  }
+
+  async function openAppeal(ticket) {
+    if (appealBusy) return;
+    closeAppeal();
+    appealTicket = ticket;
+    nodes["rank-appeal-message"].value = "";
+    show("rank-appeal-form", true);
+    nodes["rank-appeal-message"].focus();
+    try {
+      const cData = await cloud.appealContext(ticket);
+      if (appealTicket === ticket) await appealCheck.show(cloud.captchaSiteKey, { action: "rank_appeal", cData });
+    } catch {
+      if (appealTicket === ticket) text("rank-appeal-captcha-status", "真人验证暂时无法加载。");
+    }
+  }
+
   async function submitAppeal(event) {
     event.preventDefault();
     const button = nodes["rank-appeal-send"];
     const message = nodes["rank-appeal-message"].value.trim();
-    if (!appealTicket || !message || button.disabled) return;
+    if (!appealTicket || !appealToken || !message || button.disabled || appealBusy) return;
+    const ticket = appealTicket;
+    appealBusy = true;
     button.disabled = true;
     try {
-      await cloud.appeal(appealTicket, message);
+      await cloud.appeal(ticket, message, appealToken);
       if (panel === "rank-history") void refreshRankHistory("申诉已提交。");
     } catch (error) {
       if (panel === "rank-history") text("rank-history-status", error.message || "申诉提交失败。");
     } finally {
-      button.disabled = false;
+      appealBusy = false;
+      if (appealTicket === ticket) appealCheck.reset();
     }
   }
 
@@ -496,6 +522,7 @@ export function mount(root, { roomTransport = null } = {}) {
 
   function hidePanel() {
     if (panel === "account") humanCheck.hide();
+    if (panel === "rank-history") closeAppeal();
     panel = "";
     if (dialog.open) dialog.close();
   }
@@ -1336,7 +1363,7 @@ export function mount(root, { roomTransport = null } = {}) {
         openPanel("rank-history");
         break;
       case "rank-history-back": openPanel(historyReturn); break;
-      case "rank-appeal-cancel": appealTicket = ""; show("rank-appeal-form", false); break;
+      case "rank-appeal-cancel": closeAppeal(); break;
       case "rank-join": void joinRank(); break;
       case "rank-start": void launchRanked(); break;
       case "close": closePanel(); break;
@@ -1771,6 +1798,7 @@ export function mount(root, { roomTransport = null } = {}) {
     roomTransport?.close();
     sound.dispose();
     humanCheck.hide();
+    appealCheck.hide();
     hero.dispose();
     scene?.dispose();
     closet?.dispose();

@@ -1,4 +1,4 @@
-import { Cloud } from "./cloud.js?v=17";
+import { Cloud } from "./cloud.js?v=18";
 
 const cloud = new Cloud();
 const login = document.querySelector("#moderator-login");
@@ -47,7 +47,7 @@ function render(row, view) {
   const title = document.createElement("strong");
   const details = document.createElement("p");
   title.textContent = `${row.nick} · ${time(row.started_at)}`;
-  const check = row.finished_at ? `已入榜 · ${row.score} 分 · ${row.distance} 米 · ${row.fossils} 化石`
+  const check = row.finished_at ? `${row.reviewed ? "人工复核入榜" : "已入榜"} · ${row.score} 分 · ${row.distance} 米 · ${row.fossils} 化石`
     : rejectionText[row.rejection] || "等待校验";
   details.textContent = [check, `${row.checkpoints} 个校验点`, row.last_tick == null ? "" : `最后校验 ${row.last_tick / 100} 秒`,
     row.version == null ? "" : `规则版本 ${row.version}`, appealText[row.status]].filter(Boolean).join(" · ");

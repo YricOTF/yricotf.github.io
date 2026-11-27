@@ -24,19 +24,21 @@ function turnstileApi() {
 export class HumanCheck {
   constructor(target, onChange) { this.target = target; this.onChange = onChange; }
 
-  async show(sitekey) {
+  async show(sitekey, context = {}) {
     if (this.active) return;
-    this.active = true;
+    const active = this.active = {};
     try {
       this.api = await turnstileApi();
-      if (!this.active) return;
+      if (this.active !== active) return;
       this.widget = this.api.render(this.target, { sitekey, size: "flexible", language: "zh-CN",
+        ...context,
         callback: token => this.onChange(token, ""),
         "expired-callback": () => this.onChange("", "验证已过期，请重新验证。"),
         "timeout-callback": () => this.onChange("", "验证已超时，请重试。"),
         "error-callback": () => { this.onChange("", "真人验证遇到问题，请刷新重试。"); return true; },
       });
     } catch (error) {
+      if (this.active !== active) return;
       this.active = false;
       this.onChange("", error.message);
     }

@@ -54,7 +54,9 @@ export class Cloud {
         409: "这轮已过期或版本已更新。", 422: "这轮的操作记录或在线校验点未通过。", 429: "请求过快，请稍后再试。" };
       const reason = data?.error;
       const rejection = reason === "checkpoint" ? "在线校验点不完整，成绩已保存在本机。"
-        : reason === "replay" ? "服务器重放结果未通过校验，成绩已保存在本机。" : "";
+        : reason === "replay" ? "服务器重放结果未通过校验，成绩已保存在本机。"
+        : reason === "captcha" ? "真人验证未通过，请重新验证。"
+        : reason === "captcha_unavailable" ? "真人验证暂时不可用，请稍后重试。" : "";
       throw new CloudError(response.status, rejection || messages[response.status] || "云端暂时无法连接。", reason);
     }
     return data;
@@ -113,8 +115,13 @@ export class Cloud {
     }
   }
 
-  board(kind = "score") {
-    return this.fetch(kind === "fossils" ? "/rest/v1/rpc/dino_fossil_leaderboard" : "/rest/v1/rpc/dino_leaderboard", {});
+  async board(kind = "score") {
+    try {
+      return await this.fetch("/rest/v1/rpc/dino_rank_board", { p_kind: kind });
+    } catch (error) {
+      if (error.status !== 404) throw error;
+      return this.fetch(kind === "fossils" ? "/rest/v1/rpc/dino_fossil_leaderboard" : "/rest/v1/rpc/dino_leaderboard", {});
+    }
   }
 
   profile() {
@@ -127,8 +134,10 @@ export class Cloud {
 
   history() { return this.signed("/rest/v1/rpc/dino_rank_history", {}); }
 
-  appeal(id, message) {
-    return this.signed("/rest/v1/rpc/dino_appeal_run", { p_id: id, p_message: message });
+  appealContext(id) { return hashMoves([this.saved.id, id]); }
+
+  appeal(id, message, captcha) {
+    return this.signed("/functions/v1/dino-rank", { action: "appeal", ticket: id, message, captcha });
   }
 
   async signupOpen() {

@@ -83,7 +83,7 @@
     <button type="button" class="button compact" data-board="score" aria-pressed="true">分数榜</button>
     <button type="button" class="button compact" data-board="fossils" aria-pressed="false"><span class="icon icon-fossil" aria-hidden="true"></span>化石榜</button>
   </div>
-  <p id="fossil-board-note" class="panel-desc" hidden>累计已验证的排位化石。消费只扣本地余额。</p>
+  <p id="fossil-board-note" class="panel-desc" hidden>累计入榜的排位化石。消费只扣本地余额。</p>
   <p id="rank-personal" class="panel-hint rank-personal" hidden></p>
   <p class="panel-desc" id="rank-status" role="status"></p>
   <table id="rank-table" class="rank-table" aria-label="单人排位前 50 名" hidden>
@@ -106,9 +106,11 @@
   <ol id="rank-history-rows" class="rank-history-list"></ol>
   <form id="rank-appeal-form" hidden>
     <label class="rank-name">申诉说明<textarea id="rank-appeal-message" rows="3" maxlength="240" required></textarea></label>
+    <div id="rank-appeal-captcha"></div>
+    <p class="panel-hint" id="rank-appeal-captcha-status" role="status"></p>
     <div class="panel-actions">
       <button class="button" data-action="rank-appeal-cancel" type="button">取消</button>
-      <button class="button solid" id="rank-appeal-send" type="submit">提交申诉</button>
+      <button class="button solid" id="rank-appeal-send" type="submit" disabled>提交申诉</button>
     </div>
   </form>
   <div class="panel-actions"><button class="button" data-action="rank-history-back" type="button">返回</button></div>
@@ -165,7 +167,7 @@
 <button class="button solid" id="practice-retry" data-action="practice-retry" hidden>再挑战一次</button></div></section><section data-panel="results" hidden=""><div class="panel-heading"><h2>竞速成绩</h2></div><p class="panel-desc" id="results-summary"></p><ol id="result-roster" class="room-roster results-roster"></ol><div class="panel-actions"><button class="button" data-action="leave-room">离开房间</button><button class="button solid" id="rematch-button" data-action="rematch" hidden="">回到房间</button></div></section><section data-panel="error" hidden=""><div class="panel-heading"><h2>连接中断</h2></div><p class="panel-desc" id="connection-error"></p><div class="panel-actions"><button class="button solid" data-action="online">返回联机菜单</button></div></section></dialog><output id="toast" class="toast" aria-live="polite" hidden=""></output></div>
   <noscript>请开启 JavaScript 来运行 DINO DASH。</noscript>
   <script type="module">
-    import { mount } from "./game/app.js?v=17";
+    import { mount } from "./game/app.js?v=18";
     import { PeerTransport } from "./game/peer-transport.js?v=16";
     const server = document.documentElement.dataset.roomBackend === "server";
     mount(document.querySelector(".game-app"), { roomTransport: server ? null : new PeerTransport() });

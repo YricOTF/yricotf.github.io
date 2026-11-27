@@ -1,4 +1,4 @@
-import { RANK_RULES, RANK_TICKS, replayRanked, verifyProofs } from "./engine/replay.js";
+import { hashMoves, RANK_RULES, RANK_TICKS, replayRanked, verifyProofs } from "./engine/replay.js";
 
 const allowedOrigin = origin => origin === "https://yricotf.github.io" || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin || "");
 const isUuid = value => typeof value === "string" && /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(value);
@@ -17,10 +17,31 @@ async function limitedJson(request) {
   }
 }
 
-export function rankHandler({ url, serviceKey, request = fetch }) {
+export function rankHandler({ url, serviceKey, turnstileSecret, request = fetch }) {
   const rpc = (action, args) => request(`${url}/rest/v1/rpc/${action}`, { method: "POST",
     headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" },
     body: JSON.stringify(args), signal: AbortSignal.timeout(6500) });
+
+  async function appeal(data, player, reply) {
+    const message = typeof data.message === "string" ? data.message.trim() : "";
+    if (!isUuid(data.ticket) || !message || Array.from(message).length > 240 || typeof data.captcha !== "string"
+      || !data.captcha || data.captcha.length > 2048) return reply(400, { error: "appeal_input" });
+    if (!turnstileSecret) return reply(503, { error: "captcha_unavailable" });
+    const check = await request("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+      method: "POST", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(5000),
+      body: JSON.stringify({ secret: turnstileSecret, response: data.captcha }),
+    }).catch(() => null);
+    if (!check?.ok) return reply(503, { error: "captcha_unavailable" });
+    const verdict = await check.json();
+    if (verdict["error-codes"]?.some(code => ["missing-input-secret", "invalid-input-secret", "internal-error"].includes(code))) {
+      return reply(503, { error: "captcha_unavailable" });
+    }
+    if (verdict.success !== true || verdict.hostname !== "yricotf.github.io" || verdict.action !== "rank_appeal"
+      || verdict.cdata !== await hashMoves([player, data.ticket])) return reply(422, { error: "captcha" });
+    const saved = await rpc("dino_appeal_verified", { p_player: player, p_id: data.ticket, p_message: message });
+    return saved.ok ? reply(200, await saved.json())
+      : reply([400, 403, 404, 429].includes(saved.status) ? saved.status : 503, { error: "appeal" });
+  }
 
   return async incoming => {
     const origin = incoming.headers.get("origin");
@@ -43,6 +64,7 @@ export function rankHandler({ url, serviceKey, request = fetch }) {
       const user = await identity.json();
       if (!isUuid(user.id)) return reply(401, { error: "authentication" });
       const data = await limitedJson(incoming).catch(() => null);
+      if (data?.action === "appeal") return await appeal(data, user.id, reply);
       if (!isUuid(data?.ticket) || !Number.isInteger(data.ticks) || data.ticks < 1 || data.ticks > RANK_TICKS
         || typeof data.nick !== "string" || Array.from(data.nick).length > 16) return reply(400, { error: "run" });
       const result = await rpc("dino_run_for_validation", { p_id: data.ticket, p_player: user.id });
