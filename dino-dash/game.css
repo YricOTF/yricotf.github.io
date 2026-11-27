@@ -732,3 +732,13 @@ kbd.space-key { min-width: 30px; font-size: 0.72rem; }
   background: #f7efda; border: 1px solid #91835e; box-shadow: 2px 2px #24271f66; pointer-events: none;
 }
 .boss-safety { display: block; margin: 3px 0; color: #5d4a25; font-size: .72rem; font-weight: 750; }
+
+.rank-history-list { display: grid; gap: 8px; padding: 0; margin: 12px 0; list-style: none; }
+.rank-history-list li { padding: 11px; border: 1px solid #b7bcad; overflow-wrap: anywhere; }
+.rank-history-list p { margin: 5px 0; color: #50564b; white-space: pre-wrap; }
+.rank-history-list form, #rank-appeal-form { margin: 10px 0; }
+.rank-name textarea { width: 100%; padding: 8px; resize: vertical; border: 1px solid #a3a999; font: inherit; }
+.rank-admin { width: min(760px, calc(100% - 28px)); margin-inline: auto; }
+.rank-admin h1 { font-size: 1.5rem; }
+.rank-admin #moderator-login { max-width: 335px; }
+.rank-admin select { min-height: 36px; padding: 5px; font: inherit; }

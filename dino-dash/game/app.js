@@ -6,7 +6,7 @@ import { Scene } from "./scene.js?v=16";
 import { normalizeSave, readSession, Save, writeSession } from "./storage.js?v=16";
 import { RoomClient } from "./network.js?v=16";
 import { Sound } from "./audio.js?v=11";
-import { Cloud } from "./cloud.js?v=16";
+import { Cloud } from "./cloud.js?v=17";
 import { HumanCheck } from "./human-check.js?v=7";
 import { MAX_MOVES, MOVES_PER_TICK, PROOF_HEADROOM, PROOF_INTERVAL, RANK_MOVES, RANK_STEP, RANK_TICKS, RANK_RULES } from "./replay.js?v=16";
 import { sectionLesson } from "./sections.js?v=16";
@@ -50,6 +50,9 @@ export function mount(root, { roomTransport = null } = {}) {
   let run = null;
   let ranked = null;
   let rankRequest = 0;
+  let historyRequest = 0;
+  let appealTicket = "";
+  let historyReturn = "rank";
   let boardKind = "score";
   let rankSignupOpen = null;
   let cloudName = "";
@@ -154,6 +157,7 @@ export function mount(root, { roomTransport = null } = {}) {
     if (name === "shop") renderShop();
     if (name === "settings") renderAudioSettings();
     if (name === "rank") void refreshBoard();
+    if (name === "rank-history") void refreshRankHistory();
     if (name === "account") void refreshAccount();
   }
 
@@ -336,6 +340,93 @@ export function mount(root, { roomTransport = null } = {}) {
     }
   }
 
+  async function refreshRankHistory(message = "") {
+    const request = ++historyRequest;
+    appealTicket = "";
+    show("rank-appeal-form", false);
+    const list = nodes["rank-history-rows"];
+    list.replaceChildren();
+    text("rank-history-status", message || "正在读取排位记录…");
+    try {
+      const rows = await cloud.history();
+      if (request !== historyRequest || panel !== "rank-history") return;
+      const pending = new Map(cloud.ownJobs().map(entry => [entry.job.ticket, entry]));
+      const failed = new Map(cloud.rejectedJobs().map(entry => [entry.job.ticket, entry]));
+      const known = new Set(rows.map(row => row.id));
+      const entries = [...[...pending.values()].filter(item => !known.has(item.job.ticket)).map(item => ({ id: item.job.ticket, can_retry: true })), ...rows];
+      for (const row of entries) {
+        const local = pending.get(row.id) ?? failed.get(row.id);
+        const item = document.createElement("li");
+        const heading = document.createElement("strong");
+        const detail = document.createElement("p");
+        const controls = document.createElement("div");
+        controls.className = "panel-actions";
+        const score = row.score ?? local?.summary?.score;
+        const distance = row.distance ?? local?.summary?.distance;
+        const time = row.started_at ? new Date(row.started_at).toLocaleString("zh-CN", { hour12: false }) : "本机待上传";
+        heading.textContent = score === undefined ? time : `${score} 分 · ${distance} 米 · ${time}`;
+        const failure = { checkpoint: "在线校验点不完整", replay: "重放校验失败", timing: "排位票据时限或计时校验失败" }[row.rejection];
+        const review = { pending: "申诉待审核", approved: "申诉已通过", rejected: "申诉未通过" }[row.appeal];
+        detail.textContent = [row.finished_at ? "已入榜" : failure ?? "待上传", review, row.reply,
+          !row.finished_at && row.rejection && !local ? "本机没有完整操作记录" : ""].filter(Boolean).join(" · ");
+        if (!row.finished_at) {
+          const retry = document.createElement("button");
+          retry.type = "button";
+          retry.className = "button compact";
+          retry.textContent = "重试上传";
+          retry.disabled = !local || !row.can_retry;
+          retry.addEventListener("click", async () => {
+            retry.disabled = true;
+            text("rank-history-status", "正在重新校验…");
+            try {
+              await cloud.retry(row.id);
+              if (panel === "rank-history") void refreshRankHistory("此局已通过校验。");
+            } catch (error) {
+              if (panel !== "rank-history") return;
+              text("rank-history-status", error.message || "暂时无法重试，请稍后再试。");
+              setTimeout(() => { retry.disabled = false; }, 4200);
+            }
+          });
+          controls.append(retry);
+          if (row.rejection && !row.appeal) {
+            const appeal = document.createElement("button");
+            appeal.type = "button";
+            appeal.className = "button compact";
+            appeal.textContent = "申诉";
+            appeal.addEventListener("click", () => {
+              appealTicket = row.id;
+              nodes["rank-appeal-message"].value = "";
+              show("rank-appeal-form", true);
+              nodes["rank-appeal-message"].focus();
+            });
+            controls.append(appeal);
+          }
+        }
+        item.append(heading, detail, controls);
+        list.append(item);
+      }
+      text("rank-history-status", message || (entries.length ? "" : "暂无排位记录。"));
+    } catch (error) {
+      if (request === historyRequest && panel === "rank-history") text("rank-history-status", error.message || "暂时无法读取排位记录。");
+    }
+  }
+
+  async function submitAppeal(event) {
+    event.preventDefault();
+    const button = nodes["rank-appeal-send"];
+    const message = nodes["rank-appeal-message"].value.trim();
+    if (!appealTicket || !message || button.disabled) return;
+    button.disabled = true;
+    try {
+      await cloud.appeal(appealTicket, message);
+      if (panel === "rank-history") void refreshRankHistory("申诉已提交。");
+    } catch (error) {
+      if (panel === "rank-history") text("rank-history-status", error.message || "申诉提交失败。");
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   async function launchRanked() {
     if (mode === "race" || client.session || launching) return;
     if (!cloud.enabled) { openPanel("rank"); return; }
@@ -411,6 +502,7 @@ export function mount(root, { roomTransport = null } = {}) {
 
   function closePanel() {
     if (panel === "end" || panel === "results") return;
+    if (panel === "rank-history") { openPanel(historyReturn); return; }
     if (panel === "replace") {
       imported = null;
       openPanel("save");
@@ -563,6 +655,7 @@ export function mount(root, { roomTransport = null } = {}) {
     show("practice-retry", run.practice);
     show("end-retry", !run.practice);
     show("rank-submit-status", !!ranked || !run.practice && cloud.enabled);
+    show("end-rank-history", !!ranked);
     if (!ranked) text("rank-submit-status", "单人局 · 未计入排行榜");
     if (run.practice) {
       text("end-title", run.won ? "挑战成功" : "挑战结束");
@@ -596,7 +689,7 @@ export function mount(root, { roomTransport = null } = {}) {
     if (ranked) {
       const result = ranked;
       text("rank-submit-status", "正在校验排位成绩…");
-      cloud.submit(result.id, result.ticks, result.moves, result.nick, result.proof, result.proofPending).then(accepted => {
+      cloud.submit(result.id, result.ticks, result.moves, result.nick, result.proof, result.proofPending, { score: points, distance, fossils: gain }).then(accepted => {
         showRankResult(result.id, accepted);
       }).catch(error => {
         if (ranked === result) text("rank-submit-status", error.status && error.status < 429 ? error.message : "上传暂缓，游戏会自动重试。");
@@ -1237,6 +1330,13 @@ export function mount(root, { roomTransport = null } = {}) {
       case "account": if (mode === "menu" && !client.session) openPanel("account"); break;
       case "rank": if (mode === "menu" && !client.session) openPanel("rank"); break;
       case "rank-refresh": void refreshBoard(); break;
+      case "rank-history":
+        if (!cloud.joined) { openPanel("account"); break; }
+        historyReturn = panel === "end" ? "end" : "rank";
+        openPanel("rank-history");
+        break;
+      case "rank-history-back": openPanel(historyReturn); break;
+      case "rank-appeal-cancel": appealTicket = ""; show("rank-appeal-form", false); break;
       case "rank-join": void joinRank(); break;
       case "rank-start": void launchRanked(); break;
       case "close": closePanel(); break;
@@ -1650,6 +1750,7 @@ export function mount(root, { roomTransport = null } = {}) {
   });
 
   on(nodes["account-form"], "submit", saveNickname);
+  on(nodes["rank-appeal-form"], "submit", submitAppeal);
   buildGuide();
   buildPowerHud();
   updateMenu();

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>排位审核 · DINO DASH</title>
+  <link rel="icon" href="./dino.png">
+  <link rel="stylesheet" href="./game.css?v=17">
+</head>
+<body>
+  <header class="topbar"><div class="topbar-inner"><a class="brand" href="./"><span class="icon icon-dino" aria-hidden="true"></span>DINO DASH</a></div></header>
+  <main class="main rank-admin">
+    <h1>排位审核</h1>
+    <form id="moderator-login">
+      <label class="rank-name">审核密码<input name="password" type="password" maxlength="72" autocomplete="current-password" required></label>
+      <button class="button solid" type="submit">进入审核</button>
+    </form>
+    <p class="panel-hint" id="moderator-status" role="status"></p>
+    <section id="moderator-console" hidden>
+      <div class="panel-actions">
+        <label for="moderator-filter">查看</label>
+        <select id="moderator-filter">
+          <option value="pending">待审申诉</option><option value="approved">已通过</option>
+          <option value="rejected">已驳回</option><option value="all">全部申诉</option>
+          <option value="data">最近的排位与校验记录</option>
+        </select>
+        <button class="button compact" type="button" id="moderator-refresh">刷新</button>
+        <button class="button compact" type="button" id="moderator-logout">退出审核</button>
+      </div>
+      <ol id="moderator-rows" class="rank-history-list"></ol>
+    </section>
+  </main>
+  <script type="module" src="./game/rank-admin.js?v=17"></script>
+</body>
+</html>

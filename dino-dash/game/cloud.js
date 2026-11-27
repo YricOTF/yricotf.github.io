@@ -125,6 +125,12 @@ export class Cloud {
     return this.signed("/rest/v1/rpc/dino_set_nickname", { p_nick: nick });
   }
 
+  history() { return this.signed("/rest/v1/rpc/dino_rank_history", {}); }
+
+  appeal(id, message) {
+    return this.signed("/rest/v1/rpc/dino_appeal_run", { p_id: id, p_message: message });
+  }
+
   async signupOpen() {
     if (!this.enabled || !this.captchaSiteKey) return false;
     const response = await fetch(this.url + "/auth/v1/settings", {
@@ -172,9 +178,9 @@ export class Cloud {
     return applied;
   }
 
-  async submit(ticket, ticks, moves, nick, proof, inFlight) {
+  async submit(ticket, ticks, moves, nick, proof, inFlight, summary) {
     const job = { ticket, ticks, moves, nick };
-    const entry = { project: this.url, user: this.saved.id, job, proof: proof && { tick: proof.tick, count: proof.moves.length } };
+    const entry = { project: this.url, user: this.saved.id, job, summary, proof: proof && { tick: proof.tick, count: proof.moves.length } };
     await this.editJobs(list => list.some(item => item.job?.ticket === ticket) ? list : [...list, entry]);
     return this.send(entry, inFlight);
   }
@@ -189,6 +195,19 @@ export class Cloud {
   }
 
   pendingCount() { return this.ownJobs().length; }
+
+  rejectedJobs() {
+    const stored = read(FAILED_KEY, []);
+    return this.joined && Array.isArray(stored)
+      ? stored.filter(item => item.project === this.url && item.user === this.saved.id)
+      : [];
+  }
+
+  retry(id) {
+    const entry = [...this.ownJobs(), ...this.rejectedJobs()].find(item => item.job?.ticket === id);
+    if (!entry) throw new CloudError(404, "本机没有这局的操作记录。");
+    return this.send(entry);
+  }
 
   async editJobs(update) {
     await lock(OUTBOX_KEY, () => {
@@ -206,7 +225,7 @@ export class Cloud {
     return this.sending.get(ticket);
   }
 
-  async sendOnce({ job, proof }, inFlight) {
+  async sendOnce({ job, proof, summary }, inFlight) {
     const remove = () => this.editJobs(list => list.filter(item => item.job?.ticket !== job.ticket));
     try {
       if (proof && !await inFlight) {
@@ -218,13 +237,19 @@ export class Cloud {
       }
       const accepted = await this.signed("/functions/v1/dino-rank", job);
       await remove();
+      if (this.rejectedJobs().some(item => item.job?.ticket === job.ticket)) {
+        await lock(FAILED_KEY, () => {
+          const prior = read(FAILED_KEY, []);
+          if (Array.isArray(prior)) write(FAILED_KEY, prior.filter(item => item.job?.ticket !== job.ticket));
+        });
+      }
       return accepted;
     } catch (error) {
       if (error.status === 422) {
         await lock(FAILED_KEY, () => {
           const saved = read(FAILED_KEY, []);
           const prior = Array.isArray(saved) ? saved.filter(item => item.job?.ticket !== job.ticket).slice(-2) : [];
-          write(FAILED_KEY, [...prior, { project: this.url, user: this.saved?.id, job, proof, reason: error.reason }]);
+          write(FAILED_KEY, [...prior, { project: this.url, user: this.saved?.id, job, proof, summary, reason: error.reason }]);
         });
       }
       if (closedTicket(error)) await remove();
