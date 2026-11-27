@@ -1,17 +1,17 @@
-import { biomeLength, courseGroup, FIRST_GROUP, flightPose, GROUP_SPACING, hash, isFlyer, rideHeight, rideLength, trackDistance } from "./course.js?v=10";
-import { advanceBoss, battleRoute, beginBoss, BOSSES, collectStrike, LANES, POWERUPS, restoreBoss } from "./challenge.js?v=12";
-import { cruisingSpeed, HIGH_JUMP_TIME, JUMP_TIME, jumpHeight, VINE_GAP_END, VINE_GAP_START, VINE_GRAB_END, VINE_GRAB_START, VINE_GRIP } from "./movement.js?v=6";
-import { sectionsNear, sectionFossils, SECTION_RULES, RIVER_RULES, riverTiming, swingHeight } from "./sections.js?v=14";
+import { biomeLength, courseGroup, FIRST_GROUP, flightPose, GROUP_SPACING, hash, isFlyer, rideHeight, rideLength, trackDistance } from "./course.js?v=15";
+import { advanceBoss, battleRoute, beginBoss, BOSSES, collectStrike, LANES, POWERUPS, restoreBoss } from "./challenge.js?v=15";
+import { cruisingSpeed, HIGH_JUMP_TIME, JUMP_TIME, jumpHeight, PACING_RULES, VINE_GAP_END, VINE_GAP_START, VINE_GRAB_END, VINE_GRAB_START, VINE_GRIP } from "./movement.js?v=15";
+import { sectionsNear, sectionFossils, SECTION_RULES, RIVER_RULES, riverTiming, swingHeight } from "./sections.js?v=15";
 
 export { LANES, hash };
-import { OPENING_BOOSTS } from "./catalog.js?v=12";
-export { SKINS } from "./catalog.js?v=12";
+import { OPENING_BOOSTS } from "./catalog.js?v=15";
+export { SKINS } from "./catalog.js?v=15";
 export const RACE_METRES = 650;
 export const RACE_LIMIT_MS = 65_000;
 export const RACE_RULES = RIVER_RULES;
 export const STREAM_RULES = 7;
 const RANDOM_BOSS_RULES = 8;
-export const SOLO_RULES = RIVER_RULES;
+export const SOLO_RULES = PACING_RULES;
 const LAUNCH_PACE = { flight: 62, dash: 55 };
 const POWER_LIMITS = Object.fromEntries(Object.keys(POWERUPS).map(id => [id,
   Math.max(POWERUPS[id].duration, ...Object.values(OPENING_BOOSTS).map(boost => boost.effects[id] || 0))]));
@@ -124,7 +124,7 @@ export function newPractice(index) {
   run.practice = true;
   run.nextBoss = index;
   run.distance = BOSSES[index].distance;
-  run.boss = beginBoss(index, cruisingSpeed(run.distance), true, run.seed);
+  run.boss = beginBoss(index, cruisingSpeed(run.distance, run.mode, run.rules), true, run.seed);
   return run;
 }
 
@@ -203,7 +203,7 @@ export function loadRun(snapshot, mode = "solo") {
     }
   }
   if (mode === "solo") {
-    run.arenaRoute = Number.isInteger(snapshot.arenaRoute) && [3, 4, 5, SECTION_RULES, STREAM_RULES, RANDOM_BOSS_RULES, SOLO_RULES].includes(snapshot.arenaRoute) ? snapshot.arenaRoute
+    run.arenaRoute = Number.isInteger(snapshot.arenaRoute) && [3, 4, 5, SECTION_RULES, STREAM_RULES, RANDOM_BOSS_RULES, RIVER_RULES, SOLO_RULES].includes(snapshot.arenaRoute) ? snapshot.arenaRoute
       : snapshot.legacyBossRoute === true || snapshot.rules < 4 || snapshot.rules === undefined ? 3 : snapshot.rules === 4 ? 4 : 5;
     if (!(snapshot.rules >= RANDOM_BOSS_RULES)) run.grace = Math.max(run.grace, 0.8);
     const sites = arenaSites(run.arenaRoute);
@@ -218,7 +218,7 @@ export function loadRun(snapshot, mode = "solo") {
         run.boss.patternSeed = run.seed;
         run.boss.beat = 0;
         run.boss.mercy = run.boss.hp > 0;
-        run.boss.pace = cruisingSpeed(run.distance);
+        run.boss.pace = cruisingSpeed(run.distance, run.mode, run.rules);
         if (run.boss.hp > 0) Object.assign(run.boss, { phase: "intro", age: 0, beat: 0, lanes: [], strike: null, routeMask: 0, travel: Math.max(0, run.distance - sites[run.boss.index]) });
       }
     }
@@ -541,7 +541,7 @@ function chaseLanes(run, metres, radius = 6) {
 }
 
 function stepChase(run, dt, previous, notify) {
-  run.boss.pace = cruisingSpeed(run.distance, run.mode);
+  run.boss.pace = cruisingSpeed(run.distance, run.mode, run.rules);
   const canAttack = !sectionsNear(run.seed, run.distance, 217, 5, run.mode)
     .some(section => section.end + 6 > run.distance);
   advanceBoss(run, dt, cause => damage(run, cause, notify), notify, {
@@ -564,7 +564,7 @@ export function stepRun(run, dt, notify = () => {}) {
   }
   const section = run.rules >= SECTION_RULES && (!run.boss || run.boss.streaming) && run.distance >= run.bossExit
     ? sectionsNear(run.seed, run.distance, 1, 1, run.mode).find(item => item.start >= run.bossExit) : null;
-  let base = (run.boss?.streaming ? 0 : run.boss?.pace) || cruisingSpeed(run.distance, run.mode);
+  let base = (run.boss?.streaming ? 0 : run.boss?.pace) || cruisingSpeed(run.distance, run.mode, run.rules);
   if (section && run.distance < section.end + 6) base = Math.min(base, section.kind === "river" ? 22 : 28);
   const speed = base * (run.slow > 0 ? 0.43 : 1);
   const previous = run.distance;
@@ -633,7 +633,7 @@ export function stepRun(run, dt, notify = () => {}) {
   if (!run.boss && site !== undefined && run.distance >= site && run.distance >= run.bossExit) {
     if (run.rules < SECTION_RULES) run.distance = site;
     run.ride = null;
-    run.boss = beginBoss(run.nextBoss, run.rules >= SECTION_RULES ? cruisingSpeed(run.distance) : 0, run.rules >= STREAM_RULES, run.rules >= RANDOM_BOSS_RULES ? run.seed : 0);
+    run.boss = beginBoss(run.nextBoss, run.rules >= SECTION_RULES ? cruisingSpeed(run.distance, run.mode, run.rules) : 0, run.rules >= STREAM_RULES, run.rules >= RANDOM_BOSS_RULES ? run.seed : 0);
     notify("boss-enter", BOSSES[run.nextBoss]);
     if (run.rules < STREAM_RULES) return;
   }

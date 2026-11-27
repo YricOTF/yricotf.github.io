@@ -1,5 +1,5 @@
-import { improveRewardTrail, layoutGroup, LAYOUTS } from "./layouts.js?v=6";
-import { MAX_SOLO_SPEED } from "./movement.js?v=6";
+import { improveRewardTrail, layoutGroup, LAYOUTS } from "./layouts.js?v=15";
+import { MAX_SOLO_SPEED } from "./movement.js?v=15";
 
 export const BIOME_LENGTH = 90 * MAX_SOLO_SPEED;
 const SHORT_BIOME_LENGTH = 230;
@@ -115,7 +115,7 @@ export function courseGroup(seed, index, mode, distance, roll, powerIds, rules) 
   const layoutShift = Math.floor(hash(seed ^ 0x5ceee2, zone) * LAYOUTS.length);
   if (rules >= 5 && !special && index >= 6 && index % 3 === 0 && local > 32 && local < length - 30) {
     const layout = LAYOUTS[(Math.floor(index / 3) - 2 + layoutShift) % LAYOUTS.length];
-    return layoutGroup(index, distance, mode, biome.id, roll, layout);
+    return layoutGroup(index, distance, mode, biome.id, roll, layout, rules);
   }
   const obstacles = [{ id: `${index}a`, kind, d: distance, lane: first, turn: roll(8) * Math.PI * 2, side: roll(6) < 0.5 ? -1 : 1 }];
   const doubleChance = kind === "meteor" ? 0.48 : terrain ? (local < 25 ? 0.28 : 0.85) : 0.70;
@@ -148,5 +148,5 @@ export function courseGroup(seed, index, mode, distance, roll, powerIds, rules) 
     lane: safe, d: distance - 2.5, y: 0.95,
   }] : [];
   const group = { obstacles, fossils, powers };
-  return rules >= 5 && !special ? improveRewardTrail(group, index, distance, mode, obstacles[0], safe) : group;
+  return rules >= 5 && !special ? improveRewardTrail(group, index, distance, mode, obstacles[0], safe, rules) : group;
 }

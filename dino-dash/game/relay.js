@@ -1,4 +1,4 @@
-import { PeerRoomError } from "./peer-model.js?v=14";
+import { PeerRoomError } from "./peer-model.js?v=15";
 
 const SERVERS = ["wss://broker.emqx.io:8084/mqtt", "wss://test.mosquitto.org:8081/mqtt"];
 const encoder = new TextEncoder();

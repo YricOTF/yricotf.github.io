@@ -1,7 +1,7 @@
-import { control, newRun, runScore, stepRun } from "./runner.js?v=14";
+import { control, newRun, runScore, stepRun } from "./runner.js?v=15";
 
-export const REPLAY_VERSION = 5;
-export const RANK_RULES = Object.freeze({ 1: 5, 2: 6, 3: 7, 4: 8, 5: 9 });
+export const REPLAY_VERSION = 6;
+export const RANK_RULES = Object.freeze({ 1: 5, 2: 6, 3: 7, 4: 8, 5: 9, 6: 10 });
 export const RANK_STEP = 0.01;
 export const RANK_TICKS = 90_000;
 export const RANK_MOVES = ["left", "right", "jump", "slide"];

@@ -1,5 +1,5 @@
-import { loadRun } from "./runner.js?v=14";
-import { ACCESSORIES, OPENING_BOOSTS, restoreRewards, SHARD_RECYCLE, SKINS, WARDROBE, unpackLook } from "./catalog.js?v=12";
+import { loadRun } from "./runner.js?v=15";
+import { ACCESSORIES, OPENING_BOOSTS, restoreRewards, SHARD_RECYCLE, SKINS, WARDROBE, unpackLook } from "./catalog.js?v=15";
 
 const KEY = "dino-dash.save.v1";
 

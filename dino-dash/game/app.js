@@ -1,15 +1,15 @@
-import { biomeAt, BIOMES } from "./course.js?v=10";
-import { applyOpeningBoost, control, normalizeRaceRules, loadRun, newPractice, newRun, newSectionPractice, RACE_METRES, RACE_RULES, runScore, stepRun, tune } from "./runner.js?v=14";
+import { biomeAt, BIOMES } from "./course.js?v=15";
+import { applyOpeningBoost, control, normalizeRaceRules, loadRun, newPractice, newRun, newSectionPractice, RACE_METRES, RACE_RULES, runScore, stepRun, tune } from "./runner.js?v=15";
 import { ACCESSORIES, buyOpeningBoost, chestPrice, OPENING_BOOSTS, fragmentBalance, openChests, owns, packLook, SKINS, unlock, unpackLook, WARDROBE } from "./catalog.js?v=13";
-import { BOSSES, POWERUPS } from "./challenge.js?v=12";
-import { Scene } from "./scene.js?v=14";
-import { normalizeSave, readSession, Save, writeSession } from "./storage.js?v=14";
-import { RoomClient } from "./network.js?v=14";
+import { BOSSES, POWERUPS } from "./challenge.js?v=15";
+import { Scene } from "./scene.js?v=15";
+import { normalizeSave, readSession, Save, writeSession } from "./storage.js?v=15";
+import { RoomClient } from "./network.js?v=15";
 import { Sound } from "./audio.js?v=11";
-import { Cloud } from "./cloud.js?v=14";
+import { Cloud } from "./cloud.js?v=15";
 import { HumanCheck } from "./human-check.js?v=7";
-import { MAX_MOVES, MOVES_PER_TICK, PROOF_INTERVAL, RANK_MOVES, RANK_STEP, RANK_TICKS, RANK_RULES } from "./replay.js?v=14";
-import { sectionLesson } from "./sections.js?v=14";
+import { MAX_MOVES, MOVES_PER_TICK, PROOF_INTERVAL, RANK_MOVES, RANK_STEP, RANK_TICKS, RANK_RULES } from "./replay.js?v=15";
+import { sectionLesson } from "./sections.js?v=15";
 
 const RACE_SAVE = "dino-dash.race.v1";
 const CODE_FORMAT = /^[2-9A-HJ-NP-Z]{6}$/;

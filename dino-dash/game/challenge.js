@@ -1,4 +1,4 @@
-import { hash } from "./course.js?v=10";
+import { hash } from "./course.js?v=15";
 
 export const LANES = [-3, 0, 3];
 
@@ -27,10 +27,10 @@ const contactAt = { charge: 0.34, sweep: 0.30, meteor: 0.36 };
 export const impactTime = kind => contactAt[kind];
 export const sweepDepth = age => (age - contactAt.sweep) * 34;
 
-export function chargeDepth(age, index = 0) {
+export function chargeDepth(age, index = 0, scale = 1.85) {
   const arrival = Math.max(0, Math.min(1, age / contactAt.charge));
   const retreat = Math.max(0, Math.min(1, (age - contactAt.charge) / (PHASE_MAX.impact - contactAt.charge)));
-  const nose = [3.25, 3.34, 2.68][index];
+  const nose = [3.25, 3.34, 2.68][index] * scale / 1.85;
   return -15.7 + (15.7 - nose - 0.83) * (arrival ** 1.32) * (1 - retreat * retreat * (3 - 2 * retreat));
 }
 function waveFor(state) {

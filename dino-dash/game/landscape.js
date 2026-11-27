@@ -1,5 +1,5 @@
-import { hash } from "./course.js?v=10";
-import { VINE_GAP_END, VINE_GAP_START, VINE_GRIP } from "./movement.js?v=6";
+import { hash } from "./course.js?v=15";
+import { VINE_GAP_END, VINE_GAP_START, VINE_GRIP } from "./movement.js?v=15";
 
 const sides = [-1, 1];
 
@@ -80,31 +80,21 @@ export function courseLandmark(scene, form, z, biome) {
       scene.box(x - Math.sign(x) * 0.22, Math.min(height - 0.2, 2.72), z + depth + 0.48, 0.24, 0.39, 0.15, "#ecd49a");
     }
   };
-  const bridge = (depth, height, style) => {
-    for (const side of sides) span(side * 5.97, height, depth);
-    if (wild) {
-      for (const side of sides) {
-        scene.box(side * 4.49, height + 0.17, z + depth, 2.64, 0.91, 1.56, "#a39880");
-        scene.box(side * 3.08, height + 0.63, z + depth - 0.13, 2.88, 0.84, 1.33, "#b5a58a");
-      }
-      scene.box(0.24, height + 1.04, z + depth - 0.04, 5.95, 0.73, 1.31, "#a79f85");
-    } else if (forest) {
-      scene.box(-0.43, height + 0.08, z + depth, 11.65, 0.46, 0.88, wood);
-      for (const side of sides) {
-        scene.box(side * 2.6, height + 0.47, z + depth - 0.27, 5.3, 0.56, 2.5, "#708469");
-        scene.box(side * 2.95, height + 0.92, z + depth - 0.20, 4.9, 0.42, 1.93, "#869a7d");
-      }
-    } else {
-      scene.box(0, height + 0.06, z + depth, 12.45, 0.42, 0.76, wood);
-      for (const side of sides) {
-        scene.box(side * 5.37, height - 0.30, z + depth, 1.32, 0.22, 0.64, "#92836e");
-        if (style === "arch") scene.box(side * 4.93, height - 0.62, z + depth, 0.25, 0.47, 0.26, "#dec795");
-      }
-    }
-  };
   switch (form.id) {
     case "arch":
-      bridge(0, wild ? 5.17 : 6.06, form.id);
+      for (const side of sides) {
+        span(side * 6.65, wild ? 5.17 : 5.75, 0);
+        if (wild) {
+          scene.box(side * 5.84, 5.28, z, 2.02, 0.89, 1.49, "#a39880");
+          scene.box(side * 5.24, 5.86, z - 0.13, 1.32, 0.68, 1.14, "#b5a58a");
+        } else if (forest) {
+          scene.box(side * 5.65, 5.71, z, 2.13, 0.4, 0.88, wood);
+          scene.box(side * 5.55, 6.1, z - 0.27, 2.15, 0.58, 1.85, "#708469");
+        } else {
+          scene.box(side * 5.98, 5.81, z, 1.88, 0.42, 0.76, wood);
+          scene.box(side * 5.18, 5.34, z + 0.26, 0.25, 0.52, 0.26, "#dec795");
+        }
+      }
       break;
     case "underpass":
     case "gates":

@@ -1,5 +1,5 @@
 import { cloudConfig } from "./cloud-config.js?v=9";
-import { hashMoves, RANK_RULES } from "./replay.js?v=14";
+import { hashMoves, RANK_RULES } from "./replay.js?v=15";
 
 const SESSION_KEY = "dino-dash.cloud.v1";
 const OUTBOX_KEY = "dino-dash.rank-outbox.v1";
@@ -137,15 +137,18 @@ export class Cloud {
     if (this.pendingCount() >= 8) {
       throw new CloudError(429, "待上报的成绩较多，请先刷新排行榜重试上传。");
     }
-    let ticket;
-    try {
-      ticket = await this.signed("/rest/v1/rpc/dino_start_run_v5", {});
-    } catch (error) {
-      if (error.status !== 404) throw error;
-      ticket = { ...await this.signed("/rest/v1/rpc/dino_start_run_v4", {}), version: 4 };
+    for (const version of [6, 5, 4]) {
+      try {
+        const ticket = await this.signed(`/rest/v1/rpc/dino_start_run_v${version}`, {});
+        if (ticket?.id && Number.isInteger(ticket.seed) && (ticket.version ?? version) === version && Object.hasOwn(RANK_RULES, version)) {
+          return { ...ticket, version };
+        }
+        break;
+      } catch (error) {
+        if (error.status !== 404 || version === 4) throw error;
+      }
     }
-    if (!ticket?.id || !Number.isInteger(ticket.seed) || !Object.hasOwn(RANK_RULES, ticket.version)) throw new CloudError(503, "排位赛道暂不可用。");
-    return ticket;
+    throw new CloudError(503, "排位赛道暂不可用。");
   }
 
   async checkpoint(ticket, tick, moves) {
