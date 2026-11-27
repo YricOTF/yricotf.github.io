@@ -1,5 +1,5 @@
-import { hash } from "./course.js?v=15";
-import { VINE_GAP_END, VINE_GAP_START, VINE_GRIP } from "./movement.js?v=15";
+import { hash } from "./course.js?v=16";
+import { VINE_GAP_END, VINE_GAP_START, VINE_GRIP } from "./movement.js?v=16";
 
 const sides = [-1, 1];
 

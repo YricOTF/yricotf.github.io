@@ -1,4 +1,4 @@
-import { hash } from "./course.js?v=15";
+import { hash } from "./course.js?v=16";
 
 export const LANES = [-3, 0, 3];
 

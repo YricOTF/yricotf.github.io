@@ -1,12 +1,13 @@
 import { cloudConfig } from "./cloud-config.js?v=9";
-import { hashMoves, RANK_RULES } from "./replay.js?v=15";
+import { hashMoves, RANK_RULES, REPLAY_VERSION } from "./replay.js?v=16";
 
 const SESSION_KEY = "dino-dash.cloud.v1";
 const OUTBOX_KEY = "dino-dash.rank-outbox.v1";
+const FAILED_KEY = "dino-dash.rank-review.v1";
 const closedTicket = error => [400, 403, 404, 409, 422].includes(error.status);
 
 class CloudError extends Error {
-  constructor(status, message) { super(message); this.status = status; }
+  constructor(status, message, reason) { super(message); this.status = status; this.reason = reason; }
 }
 
 function read(key, fallback) {
@@ -51,7 +52,10 @@ export class Cloud {
     if (!response.ok) {
       const messages = { 400: "请求未通过校验。", 401: "云端身份已失效，请重新加入。", 403: "服务器拒绝了这项操作。",
         409: "这轮已过期或版本已更新。", 422: "这轮的操作记录或在线校验点未通过。", 429: "请求过快，请稍后再试。" };
-      throw new CloudError(response.status, messages[response.status] || "云端暂时无法连接。");
+      const reason = data?.error;
+      const rejection = reason === "checkpoint" ? "在线校验点不完整，成绩已保存在本机。"
+        : reason === "replay" ? "服务器重放结果未通过校验，成绩已保存在本机。" : "";
+      throw new CloudError(response.status, rejection || messages[response.status] || "云端暂时无法连接。", reason);
     }
     return data;
   }
@@ -137,7 +141,7 @@ export class Cloud {
     if (this.pendingCount() >= 8) {
       throw new CloudError(429, "待上报的成绩较多，请先刷新排行榜重试上传。");
     }
-    for (const version of [6, 5, 4]) {
+    for (let version = REPLAY_VERSION; version >= 4; version--) {
       try {
         const ticket = await this.signed(`/rest/v1/rpc/dino_start_run_v${version}`, {});
         if (ticket?.id && Number.isInteger(ticket.seed) && (ticket.version ?? version) === version && Object.hasOwn(RANK_RULES, version)) {
@@ -216,6 +220,13 @@ export class Cloud {
       await remove();
       return accepted;
     } catch (error) {
+      if (error.status === 422) {
+        await lock(FAILED_KEY, () => {
+          const saved = read(FAILED_KEY, []);
+          const prior = Array.isArray(saved) ? saved.filter(item => item.job?.ticket !== job.ticket).slice(-2) : [];
+          write(FAILED_KEY, [...prior, { project: this.url, user: this.saved?.id, job, proof, reason: error.reason }]);
+        });
+      }
       if (closedTicket(error)) await remove();
       throw error;
     }

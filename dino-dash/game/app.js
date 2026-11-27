@@ -1,15 +1,15 @@
-import { biomeAt, BIOMES } from "./course.js?v=15";
-import { applyOpeningBoost, control, normalizeRaceRules, loadRun, newPractice, newRun, newSectionPractice, RACE_METRES, RACE_RULES, runScore, stepRun, tune } from "./runner.js?v=15";
+import { biomeAt, BIOMES } from "./course.js?v=16";
+import { applyOpeningBoost, control, normalizeRaceRules, loadRun, newPractice, newRun, newSectionPractice, RACE_METRES, RACE_RULES, runScore, stepRun, tune } from "./runner.js?v=16";
 import { ACCESSORIES, buyOpeningBoost, chestPrice, OPENING_BOOSTS, fragmentBalance, openChests, owns, packLook, SKINS, unlock, unpackLook, WARDROBE } from "./catalog.js?v=13";
-import { BOSSES, POWERUPS } from "./challenge.js?v=15";
-import { Scene } from "./scene.js?v=15";
-import { normalizeSave, readSession, Save, writeSession } from "./storage.js?v=15";
-import { RoomClient } from "./network.js?v=15";
+import { BOSSES, POWERUPS } from "./challenge.js?v=16";
+import { Scene } from "./scene.js?v=16";
+import { normalizeSave, readSession, Save, writeSession } from "./storage.js?v=16";
+import { RoomClient } from "./network.js?v=16";
 import { Sound } from "./audio.js?v=11";
-import { Cloud } from "./cloud.js?v=15";
+import { Cloud } from "./cloud.js?v=16";
 import { HumanCheck } from "./human-check.js?v=7";
-import { MAX_MOVES, MOVES_PER_TICK, PROOF_INTERVAL, RANK_MOVES, RANK_STEP, RANK_TICKS, RANK_RULES } from "./replay.js?v=15";
-import { sectionLesson } from "./sections.js?v=15";
+import { MAX_MOVES, MOVES_PER_TICK, PROOF_HEADROOM, PROOF_INTERVAL, RANK_MOVES, RANK_STEP, RANK_TICKS, RANK_RULES } from "./replay.js?v=16";
+import { sectionLesson } from "./sections.js?v=16";
 
 const RACE_SAVE = "dino-dash.race.v1";
 const CODE_FORMAT = /^[2-9A-HJ-NP-Z]{6}$/;
@@ -353,7 +353,7 @@ export function mount(root, { roomTransport = null } = {}) {
       const ticket = await cloud.start();
       const nick = cloudName;
       beginSolo(newRun(ticket.seed, "solo", RANK_RULES[ticket.version]), 2020, { id: ticket.id, nick, ticks: 0, moves: [], carry: 0, lastInput: -1, sameTick: 0,
-        nextProof: PROOF_INTERVAL, proof: null, proofPending: null });
+        nextProof: PROOF_INTERVAL, retryProofAt: 0, proof: null, proofPending: null });
     } catch (error) {
       if (!cloud.joined) {
         openPanel("account");
@@ -370,28 +370,37 @@ export function mount(root, { roomTransport = null } = {}) {
     }
   }
 
-  function advanceRanked(dt) {
-    ranked.carry += dt;
-    while (ranked.carry >= RANK_STEP && !run.done) {
+  function sendRankProof(attempt, now) {
+    if (!attempt.proof || attempt.proofPending || now < attempt.retryProofAt) return;
+    const proof = attempt.proof;
+    attempt.proofPending = cloud.checkpoint(attempt.id, proof.tick, proof.moves).then(() => {
+      attempt.proof = null;
+      attempt.nextProof = proof.tick + PROOF_INTERVAL;
+      return true;
+    }).catch(() => {
+      attempt.retryProofAt = performance.now() + 2200;
+      return false;
+    }).finally(() => { attempt.proofPending = null; });
+  }
+
+  function waitingForRankProof() {
+    return ranked && ranked.ticks >= ranked.nextProof + PROOF_HEADROOM;
+  }
+
+  function advanceRanked(dt, now) {
+    if (waitingForRankProof()) ranked.carry = 0;
+    else ranked.carry += dt;
+    while (ranked.carry >= RANK_STEP && !run.done && !waitingForRankProof()) {
       stepRun(run, RANK_STEP, runEvent);
       ranked.carry -= RANK_STEP;
       ranked.ticks++;
+      if (ranked.ticks === ranked.nextProof) ranked.proof = { tick: ranked.ticks, moves: ranked.moves.slice() };
       if (ranked.ticks >= RANK_TICKS) run.done = true;
     }
-    if (!run.done && !ranked.proofPending && ranked.ticks >= ranked.nextProof) {
-      const attempt = ranked;
-      const proof = attempt.proof ??= { tick: attempt.ticks, moves: attempt.moves.slice() };
-      attempt.proofPending = cloud.checkpoint(attempt.id, proof.tick, proof.moves).then(() => {
-        attempt.proof = null;
-        attempt.nextProof = proof.tick + PROOF_INTERVAL;
-        return true;
-      }).catch(error => {
-        const retryable = !error.status || error.status >= 429;
-        if (!retryable) attempt.proof = null;
-        attempt.nextProof = retryable ? attempt.ticks + 350 : proof.tick + PROOF_INTERVAL;
-        return false;
-      }).finally(() => { attempt.proofPending = null; });
-    }
+    if (!run.done) sendRankProof(ranked, now);
+    const waiting = waitingForRankProof();
+    text("ranked-badge", waiting ? "校验同步中 · 已暂停" : "排位");
+    if (waiting) ranked.carry = 0;
   }
 
   function hidePanel() {
@@ -418,6 +427,7 @@ export function mount(root, { roomTransport = null } = {}) {
     root.classList.toggle("is-playing", canPlay);
     show("race-status", next === "race");
     show("ranked-badge", next === "solo" && !!ranked);
+    text("ranked-badge", "排位");
     if (canPlay) scene ||= new Scene(gameCanvas);
     for (const btn of buttons("pause")) {
       btn.setAttribute("aria-label", next === "race" ? "离开竞速" : "暂停");
@@ -1320,7 +1330,7 @@ export function mount(root, { roomTransport = null } = {}) {
     if (mode === "menu" || paused || !run || run.done || dialog.open && panel !== "leave") return;
     if (startAt && (mode === "race" ? client.time() : performance.now()) < startAt) return;
     sound.unlock();
-    if (ranked && (ranked.moves.length >= MAX_MOVES * 2 || ranked.lastInput === ranked.ticks && ranked.sameTick >= MOVES_PER_TICK)) return;
+    if (waitingForRankProof() || ranked && (ranked.moves.length >= MAX_MOVES * 2 || ranked.lastInput === ranked.ticks && ranked.sameTick >= MOVES_PER_TICK)) return;
     const moved = control(run, move, runEvent);
     if (ranked && moved) {
       ranked.sameTick = ranked.lastInput === ranked.ticks ? ranked.sameTick + 1 : 1;
@@ -1466,7 +1476,7 @@ export function mount(root, { roomTransport = null } = {}) {
       show("lesson-hud", !!lesson);
       if (lesson) text("lesson-hud", lesson);
       if (!paused && !startAt && !run.done) {
-        if (ranked) advanceRanked(dt);
+        if (ranked) advanceRanked(dt, now);
         else for (let remaining = lesson ? dt * 0.48 : dt; remaining > 0.0001 && !run.done;) {
           const step = Math.min(remaining, 1 / 100);
           stepRun(run, step, runEvent);

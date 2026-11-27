@@ -1,16 +1,16 @@
-import { biomeAt, biomeLength, BIOMES, flightPose, isFlyer } from "./course.js?v=15";
-import { ARENA_BOSS_DEPTH, ARENA_EXIT, ARENA_LEAD, arenaSites, runGroups, hash, LANES, clamp, tune, STREAM_RULES } from "./runner.js?v=15";
-import { skinInfo, unpackLook } from "./catalog.js?v=15";
-import { battleRoute, bossAttack, BOSSES, chargeDepth, impactTime, sweepDepth } from "./challenge.js?v=15";
+import { biomeAt, biomeLength, BIOMES, flightPose, isFlyer } from "./course.js?v=16";
+import { ARENA_BOSS_DEPTH, ARENA_EXIT, ARENA_LEAD, arenaSites, runGroups, hash, LANES, clamp, tune, STREAM_RULES } from "./runner.js?v=16";
+import { skinInfo, unpackLook } from "./catalog.js?v=16";
+import { battleRoute, bossAttack, BOSSES, chargeDepth, impactTime, sweepDepth } from "./challenge.js?v=16";
 import { drawAccessories, drawSpecies, REX_FIT } from "./avatars.js?v=14";
-import { arenaEntrance, courseLandmark, mountainPortal, ravine, sandstone, trackside, vineTree } from "./landscape.js?v=15";
-import { VINE_GAP_END, VINE_GAP_START } from "./movement.js?v=15";
-import { riverTiming, SECTION_RULES, sectionFossils, sectionsNear } from "./sections.js?v=15";
+import { arenaEntrance, courseLandmark, mountainPortal, ravine, sandstone, trackside, vineTree } from "./landscape.js?v=16";
+import { VINE_GAP_END, VINE_GAP_START } from "./movement.js?v=16";
+import { riverTiming, SECTION_RULES, sectionFossils, sectionsNear } from "./sections.js?v=16";
 
 const FOG = [0.94, 0.94, 0.92];
 const RUNNER_SCALE = 0.76;
 const BOSS_SCALE = 1.48;
-const bossShoulder = index => index === 1 ? -5.85 : 5.85;
+const bossLane = index => index === 1 ? LANES[0] : LANES[2];
 const colors = new Map();
 function rgb(hex) {
   if (Array.isArray(hex)) return hex;
@@ -47,9 +47,46 @@ function mul(a, b) {
   return out;
 }
 
-function perspective(aspect, fov = 0.77) {
-  const f = 1 / Math.tan(fov / 2);
-  return [f / aspect, 0, 0, 0, 0, f, 0, 0, 0, 0, -1.0015, -1, 0, 0, -0.24, 0];
+function perspective(aspect, fov = 0.77, magnification = 1, vertical = 0) {
+  const f = magnification / Math.tan(fov / 2);
+  return [f / aspect, 0, 0, 0, 0, f, 0, 0, 0, -vertical, -1.0015, -1, 0, 0, -0.24, 0];
+}
+
+export function bossRoadPose(preferred, z, scale, obstacles, distance, hit) {
+  const blockers = [];
+  for (const mark of obstacles) {
+    let depth = distance - mark.d;
+    if (Math.abs(depth - z) > 43) continue;
+    const gap = mark.kind === "rift" || mark.kind === "washout" || mark.kind === "vine";
+    if (!gap && hit[mark.id] != null) continue;
+    if (mark.kind === "meteor" && (depth < -16 || depth > 9)) continue;
+    if (mark.kind === "cart") depth *= 1.25;
+    const pose = isFlyer(mark.kind) ? flightPose(mark, depth) : { x: LANES[mark.lane], z: depth };
+    const roadDepth = mark.kind === "rift" ? 2.7 : mark.kind === "vine" ? 3.9 : 1.75;
+    if (mark.kind === "vine") pose.z -= 4.4;
+    blockers.push({ x: pose.x, z: pose.z, width: (scale * 0.82) + 1.46, depth: scale * 1.96 + roadDepth });
+  }
+  const clear = (x, position, extra = 0) => blockers.every(mark =>
+    Math.abs(x - mark.x) >= mark.width || Math.abs(position - mark.z) >= mark.depth + extra);
+  const lanes = [...LANES].sort((a, b) => Math.abs(a - preferred) - Math.abs(b - preferred));
+  const ahead = blockers.reduce((amount, mark) => Math.abs(preferred - mark.x) >= mark.width ? amount
+    : Math.max(amount, clamp((mark.depth + 8 - Math.abs(z - mark.z)) / 8, 0, 1)), 0);
+  if (ahead > 0) {
+    const neighbor = lanes.find(x => Math.abs(x - preferred) > 0.2 && clear(x, z, 2.5));
+    if (neighbor !== undefined) {
+      const x = tune(preferred, neighbor, ahead * ahead * (3 - 2 * ahead));
+      if (clear(x, z)) return { x, z };
+    }
+  }
+  if (clear(preferred, z)) return { x: preferred, z };
+  // Shift along the road as well when two lanes have obstacles at the same depth.
+  for (const offset of [0, -2, 2, -4, 4, -6, 6, -9, 9, -12, 12, -16, 16, -21]) {
+    const position = z + offset;
+    if (position > -2) continue;
+    const lane = lanes.find(x => clear(x, position));
+    if (lane !== undefined) return { x: lane, z: position };
+  }
+  return null;
 }
 
 function ortho(aspect, height) {
@@ -404,7 +441,7 @@ export class Scene {
     }
   }
 
-  battle(run, time, roof, habitat) {
+  battle(run, time, roof, habitat, obstacles) {
     const state = run.boss;
     const attack = bossAttack(state);
     const exposed = state.phase === "exposed";
@@ -418,7 +455,7 @@ export class Scene {
     const chargeTime = impactTime("charge");
     const rush = inCharge ? clamp(Math.min(impactAge / chargeTime, (0.72 - impactAge) / (0.72 - chargeTime)), 0, 1) : 0;
     const approach = rush * rush * (3 - 2 * rush);
-    const bossX = state.streaming ? tune(bossShoulder(state.index), leading, approach) : exposed || throwing || striking ? weakness : aiming ? leading : 0;
+    const preferred = state.streaming ? tune(bossLane(state.index), leading, approach) : exposed || throwing || striking ? weakness : aiming ? leading : 0;
     let z = state.phase === "intro" ? tune(-ARENA_BOSS_DEPTH, -15.7, clamp(state.age / 1.55, 0, 1)) : -15.7;
     if (state.phase === "warning" && attack.kind !== "meteor") {
       const buildup = state.age / attack.windup;
@@ -427,13 +464,16 @@ export class Scene {
     const scale = tune(BOSS_SCALE, 1.67, approach);
     if (inCharge) z = chargeDepth(impactAge, state.index, scale);
     if (exposed || throwing || striking) z -= 7 * (exposed ? clamp(state.age / 0.25, 0, 1) : 1);
+    const pose = state.streaming ? bossRoadPose(preferred, z, scale, obstacles, run.distance, run.hit) : { x: preferred, z };
     const collapse = state.phase === "victory" ? clamp(state.age / 0.74, 0, 1) : 0;
     const tintFlash = striking ? 0.81 - state.age : 0;
     const yaw = attack.kind === "sweep" && state.phase === "impact" ? Math.PI - 0.58 : Math.PI + 0.06;
-    this.shadow(bossX, z, 3.3 * scale, 2.9 * scale, 0.58);
-    this.dino(bossX, collapse * 0.55, z, yaw + collapse * 0.19, scale, time * 9, BOSSES[state.index].skin,
-      { grounded: !collapse, idle: collapse > 0.55, roll: collapse * 1.36,
-        slide: state.phase === "warning" && attack.kind === "charge" && state.age > 0.12 && state.age < attack.windup - 0.1, flash: Math.max(0, tintFlash) });
+    if (pose) {
+      this.shadow(pose.x, pose.z, 3.3 * scale, 2.9 * scale, 0.58);
+      this.dino(pose.x, collapse * 0.55, pose.z, yaw + collapse * 0.19, scale, time * 9, BOSSES[state.index].skin,
+        { grounded: !collapse, idle: collapse > 0.55, roll: collapse * 1.36,
+          slide: state.phase === "warning" && attack.kind === "charge" && state.age > 0.12 && state.age < attack.windup - 0.1, flash: Math.max(0, tintFlash) });
+    }
 
     if (aiming) {
       for (const lane of state.lanes) {
@@ -446,6 +486,11 @@ export class Scene {
           const front = sweepDepth(impactAge);
           this.box(x, 0.69, front, 2.52, 0.36, 0.54, "#565b50");
           this.box(x, 0.31, front - 0.45, 2.74, 0.16, 1.08, "#a5a591");
+        }
+        if (inCharge && (!pose || Math.abs(pose.x - preferred) > 0.6 || Math.abs(pose.z - z) > 1.5) && impactAge <= 0.43) {
+          const front = (impactAge - chargeTime) * 30;
+          this.box(x, 0.18, front, 2.13, 0.25, 0.86, "#858373");
+          this.box(x, 0.37, front - 0.42, 1.25, 0.22, 0.59, "#acaa94");
         }
       }
     }
@@ -469,8 +514,8 @@ export class Scene {
     }
     if (throwing) {
       const travel = clamp(state.age / 0.46, 0, 1);
-      this.attackFossil(tune(state.hitFrom, bossX, travel), tune(state.hitY, 2.24, travel) + Math.sin(Math.PI * travel) * 0.58,
-        tune(-0.8, z + 1.2, travel), time, 0.83 + travel * 0.22);
+      this.attackFossil(tune(state.hitFrom, pose?.x ?? preferred, travel), tune(state.hitY, 2.24, travel) + Math.sin(Math.PI * travel) * 0.58,
+        tune(-0.8, (pose?.z ?? z) + 1.2, travel), time, 0.83 + travel * 0.22);
     }
   }
 
@@ -892,7 +937,7 @@ export class Scene {
     const lift = run.launch?.kind === "flight" ? run.y * 0.88 : Math.max(0, run.y - 0.45) * 0.16;
     const eye = [cameraShift, 6.65 + 1.72 * zoomOut + lift, 8.95 + 8.2 * zoomOut];
     const target = [cameraShift * 0.82, 0.31 + lift, -12.3];
-    const matrix = mul(perspective(aspect, 0.81), lookAt(eye, target));
+    const matrix = mul(perspective(aspect, 0.81, 1.15, 0.14), lookAt(eye, target));
     const distance = run.distance;
     const length = biomeLength(run.rules, run.mode);
     const mapAt = spot => run.rules >= 3 ? biomeAt(run.seed, spot, run.rules, run.mode) : BIOMES[0];
@@ -1003,14 +1048,16 @@ export class Scene {
       const z = distance - edge;
       if (z < 18 && z > -105) arenaEntrance(this, z, mapAt(edge));
     }
-    if (run.boss) this.battle(run, time, roof, mapAt(distance).id);
+    if (run.boss) this.battle(run, time, roof, mapAt(distance).id, ahead);
     if (!run.boss || run.boss.streaming) {
       const upcoming = sites[run.nextBoss];
       if (!run.boss && upcoming !== undefined && upcoming - distance < 76 && distance <= upcoming) {
         const z = distance - upcoming - ARENA_BOSS_DEPTH;
-        const x = run.rules >= STREAM_RULES ? bossShoulder(run.nextBoss) : 0;
-        this.shadow(x, z, 3.3 * BOSS_SCALE, 2.9 * BOSS_SCALE, 0.58);
-        this.dino(x, 0, z, Math.PI + 0.06, BOSS_SCALE, time * 9, BOSSES[run.nextBoss].skin, { grounded: true });
+        const pose = run.rules >= STREAM_RULES ? bossRoadPose(bossLane(run.nextBoss), z, BOSS_SCALE, ahead, distance, run.hit) : { x: 0, z };
+        if (pose) {
+          this.shadow(pose.x, pose.z, 3.3 * BOSS_SCALE, 2.9 * BOSS_SCALE, 0.58);
+          this.dino(pose.x, 0, pose.z, Math.PI + 0.06, BOSS_SCALE, time * 9, BOSSES[run.nextBoss].skin, { grounded: true });
+        }
       }
       for (const group of groups) {
         if (group.formation) {

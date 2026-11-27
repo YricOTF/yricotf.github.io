@@ -1,4 +1,4 @@
-import { biomeAt, biomeLength, hash } from "./course.js?v=15";
+import { biomeAt, biomeLength, hash } from "./course.js?v=16";
 
 export const SECTION_RULES = 6;
 export const RIVER_SWING = 16.5;

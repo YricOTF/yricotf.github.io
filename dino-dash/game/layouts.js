@@ -1,4 +1,4 @@
-import { cruisingSpeed, JUMP_TIME, jumpHeight, obstacleAction } from "./movement.js?v=15";
+import { cruisingSpeed, JUMP_TIME, jumpHeight, obstacleAction } from "./movement.js?v=16";
 
 export const LAYOUTS = ["arch", "underpass", "slalom", "double", "ravine", "gates"];
 const lanes = [0, 1, 2];

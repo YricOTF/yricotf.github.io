@@ -1,0 +1,17 @@
+begin;
+
+create function public.dino_start_run_v7() returns jsonb
+language plpgsql security definer set search_path = '' as $$
+declare
+  ticket jsonb := public.dino_start_run_v3();
+begin
+  update dino_private.runs set version = 7
+    where id = (ticket->>'id')::uuid and player = auth.uid();
+  return ticket || jsonb_build_object('version', 7);
+end;
+$$;
+
+revoke all on function public.dino_start_run_v7() from public, anon, authenticated, service_role;
+grant execute on function public.dino_start_run_v7() to authenticated;
+
+commit;

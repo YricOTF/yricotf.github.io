@@ -1,17 +1,17 @@
-import { biomeLength, courseGroup, FIRST_GROUP, flightPose, GROUP_SPACING, hash, isFlyer, rideHeight, rideLength, trackDistance } from "./course.js?v=15";
-import { advanceBoss, battleRoute, beginBoss, BOSSES, collectStrike, LANES, POWERUPS, restoreBoss } from "./challenge.js?v=15";
-import { cruisingSpeed, HIGH_JUMP_TIME, JUMP_TIME, jumpHeight, PACING_RULES, VINE_GAP_END, VINE_GAP_START, VINE_GRAB_END, VINE_GRAB_START, VINE_GRIP } from "./movement.js?v=15";
-import { sectionsNear, sectionFossils, SECTION_RULES, RIVER_RULES, riverTiming, swingHeight } from "./sections.js?v=15";
+import { biomeLength, courseGroup, FIRST_GROUP, flightPose, GROUP_SPACING, hash, isFlyer, rideHeight, rideLength, trackDistance } from "./course.js?v=16";
+import { advanceBoss, battleRoute, beginBoss, BOSSES, collectStrike, LANES, POWERUPS, restoreBoss } from "./challenge.js?v=16";
+import { cruisingSpeed, HIGH_JUMP_TIME, JUMP_TIME, jumpHeight, LONG_RAMP_RULES, PACING_RULES, VINE_GAP_END, VINE_GAP_START, VINE_GRAB_END, VINE_GRAB_START, VINE_GRIP } from "./movement.js?v=16";
+import { sectionsNear, sectionFossils, SECTION_RULES, RIVER_RULES, riverTiming, swingHeight } from "./sections.js?v=16";
 
 export { LANES, hash };
-import { OPENING_BOOSTS } from "./catalog.js?v=15";
-export { SKINS } from "./catalog.js?v=15";
+import { OPENING_BOOSTS } from "./catalog.js?v=16";
+export { SKINS } from "./catalog.js?v=16";
 export const RACE_METRES = 650;
 export const RACE_LIMIT_MS = 65_000;
 export const RACE_RULES = RIVER_RULES;
 export const STREAM_RULES = 7;
 const RANDOM_BOSS_RULES = 8;
-export const SOLO_RULES = PACING_RULES;
+export const SOLO_RULES = LONG_RAMP_RULES;
 const LAUNCH_PACE = { flight: 62, dash: 55 };
 const POWER_LIMITS = Object.fromEntries(Object.keys(POWERUPS).map(id => [id,
   Math.max(POWERUPS[id].duration, ...Object.values(OPENING_BOOSTS).map(boost => boost.effects[id] || 0))]));
@@ -203,7 +203,7 @@ export function loadRun(snapshot, mode = "solo") {
     }
   }
   if (mode === "solo") {
-    run.arenaRoute = Number.isInteger(snapshot.arenaRoute) && [3, 4, 5, SECTION_RULES, STREAM_RULES, RANDOM_BOSS_RULES, RIVER_RULES, SOLO_RULES].includes(snapshot.arenaRoute) ? snapshot.arenaRoute
+    run.arenaRoute = Number.isInteger(snapshot.arenaRoute) && [3, 4, 5, SECTION_RULES, STREAM_RULES, RANDOM_BOSS_RULES, RIVER_RULES, PACING_RULES, SOLO_RULES].includes(snapshot.arenaRoute) ? snapshot.arenaRoute
       : snapshot.legacyBossRoute === true || snapshot.rules < 4 || snapshot.rules === undefined ? 3 : snapshot.rules === 4 ? 4 : 5;
     if (!(snapshot.rules >= RANDOM_BOSS_RULES)) run.grace = Math.max(run.grace, 0.8);
     const sites = arenaSites(run.arenaRoute);

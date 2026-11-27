@@ -1,5 +1,5 @@
-import { clamp, randomSeed, RACE_LIMIT_MS, RACE_METRES, normalizeRaceRules } from "./runner.js?v=15";
-import { normalizeLook } from "./catalog.js?v=15";
+import { clamp, randomSeed, RACE_LIMIT_MS, RACE_METRES, normalizeRaceRules } from "./runner.js?v=16";
+import { normalizeLook } from "./catalog.js?v=16";
 
 const ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 const LIVE_MS = 26_000;
